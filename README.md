@@ -164,13 +164,13 @@ DB 설정은 민감정보로 취급한다. credential 값은 문서화하지 않
 
 ## DB 접속 환경변수
 
-DB 접속 설정은 `db_config.py`의 `get_db_config()`에서 `INTEREST_DB_*` 환경변수로 읽는다.
+DB 접속 설정은 `db_config.py`의 `get_db_config()`에서 `INTEREST_DB_*` 환경변수로 읽는다. 현재 로컬 PostgreSQL 기본 DB name은 `portfolio`다.
 
 | 환경변수 | 기본값 | 설명 |
 | --- | --- | --- |
 | `INTEREST_DB_HOST` | `localhost` | PostgreSQL host |
 | `INTEREST_DB_PORT` | `5433` | PostgreSQL port |
-| `INTEREST_DB_NAME` | `interest_crawler` | DB name |
+| `INTEREST_DB_NAME` | `portfolio` | DB name |
 | `INTEREST_DB_USER` | `postgres` | DB user |
 | `INTEREST_DB_PASSWORD` | 없음 | DB password. 비어 있으면 실행 시 `RuntimeError`가 발생한다. |
 
@@ -179,12 +179,39 @@ DB 접속 설정은 `db_config.py`의 `get_db_config()`에서 `INTEREST_DB_*` �
 ```powershell
 $env:INTEREST_DB_HOST = "localhost"
 $env:INTEREST_DB_PORT = "5433"
-$env:INTEREST_DB_NAME = "interest_crawler"
+$env:INTEREST_DB_NAME = "portfolio"
 $env:INTEREST_DB_USER = "postgres"
 $env:INTEREST_DB_PASSWORD = "<DB_PASSWORD>"
 ```
 
 실제 password 값은 소스, 문서, 채팅에 기록하지 않는다.
+
+## DB schema 구조
+
+AWS Migration 준비 관점에서 PostgreSQL은 단일 DB `portfolio` 안에 domain별 schema를 나누는 schema-per-domain 구조를 사용한다.
+
+- `reference`
+- `interest`
+- `preprocessor`
+- `research`
+- `decision`
+- `execution`
+- `connector`
+- `ops`
+- `legacy`
+- `public`
+
+이 모듈의 DB connection search_path는 다음 순서로 적용한다.
+
+```sql
+research, preprocessor, interest, reference, legacy, public
+```
+
+schema-per-domain 전환 후에도 기존 SQL은 schema-qualified table name으로 모두 바꾸는 방식이 아니라 위 `search_path`를 기준으로 동작한다. 예를 들어 backtest 입력 feature와 research 산출 테이블은 동일한 `portfolio` DB 안에서 domain schema 우선순위에 따라 해석된다.
+
+DB name 설정은 `INTEREST_DB_NAME=portfolio`를 기본으로 정리한다. 다른 모듈에서 `PORTFOLIO_DB_NAME` 계열 환경변수를 사용하더라도 기본 DB name은 동일하게 `portfolio`로 맞춘다.
+
+민감정보는 환경변수 또는 로컬 설정으로 관리한다. 문서에는 실제 password, token, account, webhook URL 값을 기록하지 않는다.
 
 ## 운영 가이드
 

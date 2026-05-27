@@ -17,5 +17,6 @@ def get_db_config() -> dict:
         "port": port,
         "user": os.getenv("INTEREST_DB_USER", "postgres"),
         "password": password,
-        "dbname": os.getenv("INTEREST_DB_NAME", "interest_crawler"),
+        "dbname": os.getenv("INTEREST_DB_NAME", "portfolio"),
+        "options": "-c search_path=research,preprocessor,interest,reference,legacy,public",
     }
