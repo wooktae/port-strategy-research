@@ -12,14 +12,14 @@ import psycopg2.extras
 
 
 # ============================================================
-# DB_CONFIG import
+# DB config import
 # ============================================================
 
 try:
-    from port_strategy_common.config import DB_CONFIG
+    from port_strategy_research.db_config import get_db_config
 except Exception as e:
     raise RuntimeError(
-        "DB_CONFIG import 실패. port_strategy_common.config 경로를 확인해줘."
+        "get_db_config import 실패. port_strategy_research.db_config 경로를 확인해줘."
     ) from e
 
 
@@ -149,7 +149,7 @@ def win_rate(values: Sequence[Optional[Decimal]]) -> Optional[Decimal]:
 
 
 def get_conn():
-    return psycopg2.connect(**DB_CONFIG)
+    return psycopg2.connect(**get_db_config())
 
 
 def dict_cursor(conn):

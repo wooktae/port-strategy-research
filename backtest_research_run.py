@@ -12,7 +12,6 @@ print("DEBUG flow_min =", FILTER_CONFIG["flow_min"])
 
 from port_strategy_common.config import (
     BACKTEST_START_DATE,
-    DB_CONFIG,
     get_config_snapshot,
     DECISION_RUN_DATE,
     FILTER_CONFIG,
@@ -22,12 +21,13 @@ from port_strategy_research.backtest_engine import run_backtest
 from port_strategy_research.backtest_metrics import calculate_mdd, calculate_sharpe
 from port_strategy_research.backtest_run_store import create_run, ensure_run_tables, finalize_run
 from port_strategy_research.backtest_analysis_basic import run_analysis
+from port_strategy_research.db_config import get_db_config
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
 
 def get_conn():
-    return psycopg2.connect(**DB_CONFIG)
+    return psycopg2.connect(**get_db_config())
 
 
 # =========================================================

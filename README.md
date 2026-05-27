@@ -54,6 +54,7 @@
 ├── backtest_trade_log.py
 ├── backtest_metrics.py
 ├── backtest_run_store.py
+├── db_config.py
 ├── backtest_research_run.py
 ├── backtest_analysis_basic.py
 ├── analysis_extended.py
@@ -161,6 +162,30 @@
 
 DB 설정은 민감정보로 취급한다. credential 값은 문서화하지 않는다.
 
+## DB 접속 환경변수
+
+DB 접속 설정은 `db_config.py`의 `get_db_config()`에서 `INTEREST_DB_*` 환경변수로 읽는다.
+
+| 환경변수 | 기본값 | 설명 |
+| --- | --- | --- |
+| `INTEREST_DB_HOST` | `localhost` | PostgreSQL host |
+| `INTEREST_DB_PORT` | `5433` | PostgreSQL port |
+| `INTEREST_DB_NAME` | `interest_crawler` | DB name |
+| `INTEREST_DB_USER` | `postgres` | DB user |
+| `INTEREST_DB_PASSWORD` | 없음 | DB password. 비어 있으면 실행 시 `RuntimeError`가 발생한다. |
+
+예시:
+
+```powershell
+$env:INTEREST_DB_HOST = "localhost"
+$env:INTEREST_DB_PORT = "5433"
+$env:INTEREST_DB_NAME = "interest_crawler"
+$env:INTEREST_DB_USER = "postgres"
+$env:INTEREST_DB_PASSWORD = "<DB_PASSWORD>"
+```
+
+실제 password 값은 소스, 문서, 채팅에 기록하지 않는다.
+
 ## 운영 가이드
 
 문서화나 리뷰 목적의 기본 확인은 정적 검사 위주로 수행한다.
@@ -178,4 +203,3 @@ DB row 저장, 리포트 생성, 백테스트 실행 가능성이 있는 작업 
 - run id 또는 날짜 범위
 - 쓰기 대상 table/file
 - 생성된 report/output 파일 보존 여부
-

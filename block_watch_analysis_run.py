@@ -8,14 +8,14 @@ from typing import Any
 import psycopg2
 import psycopg2.extras
 
-from port_strategy_common.config import DB_CONFIG
+from port_strategy_research.db_config import get_db_config
 
 
 RETURN_DAYS = (1, 3, 5, 10)
 
 
 def get_conn():
-    return psycopg2.connect(**DB_CONFIG)
+    return psycopg2.connect(**get_db_config())
 
 
 def _to_decimal(value: Any) -> Decimal | None:

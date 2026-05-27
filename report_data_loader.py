@@ -2,18 +2,11 @@ import psycopg2
 from decimal import Decimal
 from typing import Any, Optional
 
-
-DB_CONFIG = {
-    "host": "localhost",
-    "port": 5433,
-    "user": "postgres",
-    "password": "doflwhsk3768!",
-    "dbname": "interest_crawler",
-}
+from port_strategy_research.db_config import get_db_config
 
 
 def get_conn():
-    return psycopg2.connect(**DB_CONFIG)
+    return psycopg2.connect(**get_db_config())
 
 
 def to_float(v: Any, default: Optional[float] = 0.0) -> Optional[float]:

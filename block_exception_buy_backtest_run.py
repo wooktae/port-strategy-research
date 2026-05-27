@@ -10,8 +10,8 @@ import pandas as pd
 import psycopg2
 import psycopg2.extras
 
-from port_strategy_common.config import DB_CONFIG
 from port_strategy_research.backtest_metrics import calculate_mdd, calculate_sharpe
+from port_strategy_research.db_config import get_db_config
 
 
 # ============================================================
@@ -106,7 +106,7 @@ def pct(value: Optional[Decimal | float]) -> str:
 
 
 def get_conn():
-    return psycopg2.connect(**DB_CONFIG)
+    return psycopg2.connect(**get_db_config())
 
 
 def dict_cursor(conn):

@@ -30,7 +30,7 @@ from port_strategy_research.backtest_run_store import (
     finalize_run,
 )
 
-from port_strategy_common.config import DB_CONFIG
+from port_strategy_research.db_config import get_db_config
 import psycopg2
 
 
@@ -56,7 +56,7 @@ BLOCK_EXCEPTION_MAX_OPEN_POSITIONS = 4
 # ============================================================
 
 def get_conn():
-    return psycopg2.connect(**DB_CONFIG)
+    return psycopg2.connect(**get_db_config())
 
 
 def print_section(title: str) -> None:
