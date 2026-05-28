@@ -1,3 +1,5 @@
+"""리포트 출력용 label, percentage, 사유 문자열 포맷터 모듈."""
+
 from decimal import Decimal
 from typing import Any, Optional
 

@@ -1,3 +1,9 @@
+"""block 구간 이후 watch 후보를 분석하는 독립형 백테스트성 스크립트.
+
+기존 backtest daily 결과와 종목 feature를 읽어 block/watch 후보와 forward return을 계산한다.
+주로 연구/진단용이며 실제 DB 연결이 발생하므로 실행 전 run_id와 대상 DB를 확인해야 한다.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -996,6 +1002,7 @@ def parse_args():
 
 
 def main() -> None:
+    """CLI 인자를 파싱해 block watch 후보 분석을 수행한다."""
     args = parse_args()
 
     start_date = safe_date(args.start_date)

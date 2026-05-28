@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## 2026-05-28
+
+### Added
+
+- `docs/source-file-catalog.md`를 추가해 파일별 역할, 주요 책임, 수정/운영 시 주의사항을 정리했다.
+- Python 소스 파일 상단에 한글 module docstring을 추가했다.
+- DB 저장, 분석 저장, 리포트 생성, 핵심 백테스트 파이프라인 함수에 한해 짧은 function docstring을 추가했다.
+- 2026-05-28 작업 기록을 `docs/worklog/2026-05-28.md`에 추가했다.
+
+### Changed
+
+- README에 일별 포지션 snapshot 저장/조회 흐름과 파일 카탈로그 문서 위치를 반영했다.
+- 기존 미커밋 변경사항인 `strategy_backtest_daily_position` 저장 및 리포트 조회 전환 내용을 문서화했다.
+
+### Notes
+
+- 기능 변경 없음. 문서화와 설명 주석만 추가했다.
+- 실제 백테스트, research run, 리포트 생성, DB DDL/DML, 외부 API 호출, 크롤링, 주문 실행은 수행하지 않았다.
+- 실제 password, token, account, webhook URL 값은 기록하지 않는다.
+
 ## 2026-05-27
 
 ### Added

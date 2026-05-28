@@ -1,3 +1,9 @@
+"""최신 backtest run 기준 텍스트 리포트 묶음을 생성하는 진입점.
+
+DB에서 최신 run_id를 조회하고 요약/매매/거래상세/추천 리포트 파일을 로컬에 쓴다.
+리포트 파일 생성과 DB 조회가 발생하므로 실행 전 출력 위치와 대상 DB를 확인해야 한다.
+"""
+
 import os
 import re
 from datetime import datetime

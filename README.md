@@ -11,6 +11,7 @@
 - `port_strategy_decision`의 시장 판단, 후보 필터링, 포지션 사이징 로직을 재사용한다.
 - `port_strategy_common`의 config, buy guard, size haircut, sell decision 로직을 재사용한다.
 - 승인된 실행 흐름에서는 backtest run 메타데이터, 일별 성과, 거래 로그를 저장한다.
+- 현재 정리 기준에서는 일별 보유 포지션 snapshot을 `strategy_backtest_daily_position`에 저장하고 리포트 보유/신규 매수 조회에 사용할 수 있다.
 - 저장된 backtest run을 기준으로 분석 테이블과 텍스트 리포트를 생성한다.
 
 ## 실행 주의사항
@@ -22,6 +23,7 @@
 - `backtest_run_store.ensure_run_tables(...)`
 - `backtest_run_store.create_run(...)`
 - `backtest_run_store.insert_daily_result(...)`
+- `backtest_run_store.insert_daily_positions(...)`
 - `backtest_run_store.finalize_run(...)`
 - `backtest_trade_log.insert_trade_log(...)`
 - `analysis_extended.run_analysis_extended(...)`
@@ -84,6 +86,7 @@
 - 신규 매수 전에 기존 포지션을 먼저 처리한다.
 - 보유/매도/매수 수익률을 일별 수익률과 누적 수익률로 집계한다.
 - `backtest_run_store.insert_daily_result`로 일별 backtest row를 저장한다.
+- `backtest_run_store.insert_daily_positions`로 일별 보유 포지션 snapshot을 저장할 수 있다.
 
 ### Loader
 
@@ -136,7 +139,7 @@
 
 `analysis_extended.py`는 run_id 기준으로 여러 분석 테이블을 다시 만든다. 기존 row를 삭제한 뒤 재계산 row를 insert하는 DB write 경로다.
 
-`report_data_loader.py`는 저장된 backtest run, daily row, trade log, 분석 테이블, threshold snapshot을 읽는다.
+`report_data_loader.py`는 저장된 backtest run, daily row, 일별 포지션 snapshot, trade log, 분석 테이블, threshold snapshot을 읽는다.
 
 `report_formatter.py`는 label, percentage, run input, 매수 사유, 매도 사유를 포맷팅한다.
 
@@ -149,6 +152,12 @@
 - `backtest_report_run.py`: 최신 run id 기준 전체 리포트 생성 orchestration
 
 리포트 생성은 DB 연결과 현재 작업 디렉터리의 텍스트 파일 생성을 동반한다.
+
+## 파일 카탈로그와 설명 주석
+
+AWS Migration 전 초기 정리 자료로 `docs/source-file-catalog.md`를 추가했다. 이 문서는 repository root 기준 파일별 역할, 주요 책임, DB 접근/파일 생성/환경변수 의존성 같은 운영 주의사항을 정리한다.
+
+Python 파일에는 모듈 docstring을 추가해 각 파일의 역할과 실행 위험을 상단에서 확인할 수 있게 했다. 함수 docstring은 DB 저장, 리포트 생성, 분석 테이블 갱신, 핵심 백테스트 파이프라인처럼 운영상 중요한 함수에만 제한적으로 추가했다. 기능 로직 변경은 없다.
 
 ## 외부 의존성
 

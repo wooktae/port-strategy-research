@@ -1,3 +1,9 @@
+"""block 장세 예외 매수 전략을 백테스트 엔진 흐름으로 검증하는 연구 스크립트.
+
+기존 백테스트 loader/position/buy 저장 흐름을 재사용하며 run 생성, daily 저장, 분석 저장이 가능하다.
+실행 시 DB write와 commit이 발생할 수 있으므로 문서화 작업에서는 직접 실행하지 않는다.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -247,6 +253,7 @@ def process_block_exception_buy(
 # ============================================================
 
 def run_block_exception_engine_backtest(conn, run_id: str) -> List[dict]:
+    """block 예외 매수 조건을 적용한 백테스트 루프를 실행하고 history를 반환한다."""
     print_section("BLOCK_EXCEPTION_BUY_V1 Engine Backtest")
     print(f"ENGINE_VERSION     : {ENGINE_VERSION}")
     print(f"EXPERIMENT_VERSION : {EXPERIMENT_VERSION}")

@@ -1,3 +1,10 @@
+"""백테스트 입력 feature를 DB에서 읽어오는 loader 모듈.
+
+시장 feature, 종목 feature, 다음 거래일 가격, 종목 universe를 조회한다.
+읽기 전용 SQL helper지만 실제 DB connection을 넘겨받아 실행하므로
+백테스트 실행 흐름 안에서만 대상 DB를 확인한 뒤 사용한다.
+"""
+
 import pandas as pd
 
 from port_strategy_common.config import BACKTEST_START_DATE

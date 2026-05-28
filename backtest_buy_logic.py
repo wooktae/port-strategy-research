@@ -1,3 +1,9 @@
+"""백테스트 신규 매수 처리 로직 모듈.
+
+후보 종목을 common model로 변환하고 decision 모듈의 sizing 결과에 따라 포지션을 만든다.
+buy guard, haircut, 당일 장중 손절 판단을 적용하며 손절 거래는 trade log 저장 경로로 이어질 수 있다.
+"""
+
 from decimal import Decimal
 from dataclasses import replace
 
@@ -84,6 +90,7 @@ def process_buy(
     price_map,
     run_id,
 ):
+    """후보 종목을 신규 포지션으로 편입하고 당일 손절 거래를 필요한 경우 저장한다."""
     current_position_count = len(positions)
     available_slots = max(0, decision.max_positions - current_position_count)
 

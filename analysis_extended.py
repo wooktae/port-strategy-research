@@ -1,3 +1,9 @@
+"""확장 백테스트 분석 테이블을 run_id 기준으로 재생성하는 모듈.
+
+거래 상세, signal/holding, ticker, entry/exit, sector, MB weak 후보 분석을 계산한다.
+분석 테이블 delete/insert가 포함된 DB write 경로이므로 리포트 검토 중 직접 실행하지 않는다.
+"""
+
 from port_strategy_research.report_data_loader import (
     get_conn,
     get_latest_run_id,
@@ -48,6 +54,7 @@ P4_LABEL = f"{_fmt_num(abs(p4) * 100)}%%"
 
 
 def run_analysis_extended(conn, run_id: str):
+    """단일 run_id에 대한 확장 분석 테이블들을 재계산해 저장한다."""
     cur = conn.cursor()
 
     run_summary = get_run_summary(cur, run_id)

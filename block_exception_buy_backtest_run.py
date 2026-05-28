@@ -1,3 +1,9 @@
+"""block 장세 예외 매수 후보를 별도 규칙으로 검증하는 연구용 백테스트 스크립트.
+
+CLI threshold를 받아 후보를 만들고 forward return, 거래 요약, 월별 요약을 출력한다.
+DB 연결이 발생하며 backtest 유사 계산을 수행하므로 명시 승인 없이 실행하지 않는다.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -735,6 +741,7 @@ def parse_args():
 
 
 def main() -> None:
+    """CLI 인자를 파싱해 block 예외 매수 후보 백테스트를 수행한다."""
     args = parse_args()
 
     start_date = safe_date(args.start_date)

@@ -1,3 +1,9 @@
+"""일자별 매수/매도 텍스트 리포트를 생성하는 모듈.
+
+일별 성과, 보유 snapshot, 신규 매수, 매도 로그를 조합해 txt 파일로 출력한다.
+실행 시 DB 조회와 로컬 파일 쓰기가 발생한다.
+"""
+
 from datetime import datetime
 
 from port_strategy_research.report_data_loader import (
@@ -32,6 +38,7 @@ def _write_section(f, title: str):
 
 
 def generate_buy_sell_report(run_id: str, output_file: str = "02_일자별매매리포트.txt"):
+    """단일 run_id의 일자별 매매 리포트를 지정 파일로 생성한다."""
     conn = get_conn()
     cur = conn.cursor()
 

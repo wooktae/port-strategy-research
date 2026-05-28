@@ -1,3 +1,9 @@
+"""표준 백테스트 research run 실행 진입점.
+
+DB 연결, run 생성, 입력/config snapshot 저장, 엔진 실행, 기본 분석 저장을 순서대로 수행한다.
+실행하면 DB DDL/DML과 commit이 발생하므로 문서화/리뷰 작업에서는 직접 실행하지 않는다.
+"""
+
 import warnings
 import json
 
@@ -27,6 +33,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 
 def get_conn():
+    """백테스트 실행용 PostgreSQL connection을 생성한다."""
     return psycopg2.connect(**get_db_config())
 
 
@@ -34,6 +41,7 @@ def get_conn():
 # CONFIG SNAPSHOT SAVE
 # =========================================================
 def save_config_snapshot(conn, run_id, config: dict):
+    """run_id별 config snapshot key/value를 저장한다."""
     with conn.cursor() as cur:
         # 1. raw json 저장
         cur.execute(
@@ -71,6 +79,7 @@ def save_config_snapshot(conn, run_id, config: dict):
 # INPUT HISTORY SAVE
 # =========================================================
 def save_run_inputs(conn, run_id, inputs: dict):
+    """run_id별 실행 입력값을 `strategy_run_input`에 저장한다."""
     with conn.cursor() as cur:
         for k, v in inputs.items():
             cur.execute(

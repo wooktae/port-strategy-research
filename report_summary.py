@@ -1,3 +1,9 @@
+"""백테스트 요약 텍스트 리포트를 생성하는 모듈.
+
+run 요약, 일별 성과, 주요 분석 통계를 읽어 사람이 읽는 txt 파일로 출력한다.
+실행 시 DB 조회와 로컬 파일 쓰기가 발생한다.
+"""
+
 from datetime import datetime
 
 from port_strategy_common.config import REPORT_CONFIG
@@ -41,6 +47,7 @@ def _write_empty(f):
 
 
 def generate_summary_report(run_id: str, output_file: str = "01_요약리포트.txt"):
+    """단일 run_id의 요약 리포트를 지정 파일로 생성한다."""
     conn = get_conn()
     cur = conn.cursor()
 

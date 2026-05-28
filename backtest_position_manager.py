@@ -1,3 +1,9 @@
+"""백테스트 기존 포지션 처리 모듈.
+
+보유 종목의 당일 수익률, 장중 손절, 일반 매도 판단을 계산한다.
+청산 거래는 `strategy_trade_log` 저장 helper로 이어지고 살아남은 포지션은 다음 거래일로 이월된다.
+"""
+
 from port_strategy_research.backtest_sell_logic import evaluate_sell
 from port_strategy_research.backtest_trade_log import insert_trade_log
 from port_strategy_common.utils import to_float
@@ -46,6 +52,7 @@ def process_existing_positions(
     price_map,
     run_id,
 ):
+    """기존 보유 포지션을 평가해 청산/이월 결과와 일별 수익률 기여를 반환한다."""
     sold_returns = []
     held_returns = []
 

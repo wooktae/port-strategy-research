@@ -1,3 +1,5 @@
+"""백테스트 일별 수익률 DataFrame에서 성과 지표를 계산하는 모듈."""
+
 import numpy as np
 
 from port_strategy_common.config import RISK_FREE_RATE, TRADING_DAYS_PER_YEAR

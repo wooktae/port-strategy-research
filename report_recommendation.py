@@ -1,3 +1,9 @@
+"""백테스트 분석 결과를 바탕으로 개선 추천 텍스트 리포트를 생성하는 모듈.
+
+확장 분석 테이블과 config threshold를 읽어 리스크/진입/청산/섹터 관점의 진단 문구를 만든다.
+실행 시 DB 조회와 로컬 파일 쓰기가 발생한다.
+"""
+
 from datetime import datetime
 from collections import defaultdict
 
@@ -157,6 +163,7 @@ def build_recommendations(
     mbweak_candidate_rows,
     mbweak_other_rows,
 ):
+    """분석 row와 threshold snapshot을 조합해 추천 문구 목록을 만든다."""
     total_trades = int(run_summary.get("trade_count", 0) or 0)
     sharpe = to_float(run_summary.get("sharpe"), 0.0)
     mdd = to_float(run_summary.get("mdd"), 0.0)
@@ -1008,6 +1015,7 @@ def generate_recommendation_report(
     run_id: str,
     output_file: str = "04_추천리포트.txt",
 ):
+    """단일 run_id의 추천/진단 리포트를 지정 파일로 생성한다."""
     conn = get_conn()
     cur = conn.cursor()
 

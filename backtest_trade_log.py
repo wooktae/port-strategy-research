@@ -1,9 +1,16 @@
+"""완료된 백테스트 거래를 `strategy_trade_log`에 저장하는 모듈.
+
+매수/매도 가격, 보유 기간, 수익률, buy/sell metadata, config snapshot을 함께 기록한다.
+DB insert 경로이므로 실제 실행 전 run_id와 대상 DB를 확인해야 한다.
+"""
+
 import json
 
 from port_strategy_common.config import ENGINE_VERSION, STRATEGY_NAME, get_config_snapshot
 
 
 def insert_trade_log(conn, row, company_map, run_id):
+    """청산되었거나 당일 손절된 단일 거래 row를 trade log 테이블에 insert한다."""
     company_name = company_map.get(row["ticker_code"], "")
 
     sql = """

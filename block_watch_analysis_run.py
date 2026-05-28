@@ -1,3 +1,9 @@
+"""block 이후 watch 후보의 사후 수익률을 계산하고 저장하는 분석 진입점.
+
+watch 후보와 미래 가격을 DB에서 읽고 n일 후 수익률 컬럼을 update한다.
+DB update가 포함되므로 문서화 작업에서는 직접 실행하지 않는다.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -186,6 +192,7 @@ def _fmt_pct(value: Any) -> str:
 
 
 def run_block_watch_analysis(daily_run_id: int | None = None):
+    """watch 후보의 미래 수익률을 계산해 저장하고 요약을 출력한다."""
     conn = get_conn()
 
     try:

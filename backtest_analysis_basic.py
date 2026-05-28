@@ -1,6 +1,13 @@
+"""백테스트 거래 로그 기반 기본 분석 테이블을 생성하는 모듈.
+
+매수 사유, 보유 기간, 시장 신호별 성과를 집계해 `strategy_backtest_*_analysis` 계열에 저장한다.
+기존 run_id 분석 row 삭제 후 insert하는 DB write 경로이므로 실행 전 대상 DB 확인이 필요하다.
+"""
+
 import psycopg2
 
 def run_analysis(conn, run_id):
+    """단일 run_id의 기본 분석 row를 재생성한다."""
     cur = conn.cursor()
 
     # 1️⃣ exit reason 분석
