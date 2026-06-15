@@ -9,7 +9,7 @@ from dataclasses import replace
 
 from port_strategy_common.config import BUY_CONFIG, GENERAL_CONFIG
 from port_strategy_research.backtest_trade_log import insert_trade_log
-from port_strategy_decision.backtest_sizing import allocate_positions
+from port_strategy_research.research_backtest_sizing_adapter import allocate_positions
 
 from port_strategy_common.common_context import CommonStockContext
 from port_strategy_common.common_result import CommonMarketDecision

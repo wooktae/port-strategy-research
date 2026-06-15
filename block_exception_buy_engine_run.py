@@ -23,8 +23,8 @@ from port_strategy_research.backtest_loader import (
     load_stock_universe,
 )
 
-from port_strategy_decision.backtest_market import evaluate_market
-from port_strategy_decision.backtest_filter import filter_buy_candidates
+from port_strategy_research.research_backtest_market_adapter import evaluate_market
+from port_strategy_research.research_backtest_filter_adapter import filter_buy_candidates
 
 from port_strategy_research.backtest_position_manager import process_existing_positions
 from port_strategy_research.backtest_buy_logic import process_buy
