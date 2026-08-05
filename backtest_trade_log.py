@@ -1,16 +1,36 @@
-"""완료된 백테스트 거래를 `strategy_trade_log`에 저장하는 모듈.
+"""완료된 백테스트 거래를 `strategy_trade_log`에 저장한다.
 
-매수/매도 가격, 보유 기간, 수익률, buy/sell metadata, config snapshot을 함께 기록한다.
-DB insert 경로이므로 실제 실행 전 run_id와 대상 DB를 확인해야 한다.
+Trade는 전체 Config JSON을 복제하지 않는다.
+`run_id`로 `strategy_backtest_run.config_snapshot`에 연결하고,
+조회 편의를 위해 Strategy Config Version과 Config Hash만 비정규화한다.
 """
+
+from __future__ import annotations
 
 import json
 
-from port_strategy_common.config import ENGINE_VERSION, STRATEGY_NAME, get_config_snapshot
+from port_strategy_common.config import STRATEGY_NAME
+from port_strategy_research.research_engine_version import (
+    RESEARCH_ENGINE_VERSION,
+)
 
 
-def insert_trade_log(conn, row, company_map, run_id):
-    """청산되었거나 당일 손절된 단일 거래 row를 trade log 테이블에 insert한다."""
+def insert_trade_log(
+    conn,
+    row,
+    company_map,
+    run_id,
+    *,
+    strategy_config_version: str,
+    config_hash: str,
+):
+    """단일 거래를 Run의 Canonical Config Snapshot에 연결해 저장한다."""
+    if not strategy_config_version:
+        raise ValueError("TRADE_STRATEGY_CONFIG_VERSION_REQUIRED")
+
+    if len(config_hash) != 64:
+        raise ValueError("TRADE_CONFIG_HASH_INVALID")
+
     company_name = company_map.get(row["ticker_code"], "")
 
     sql = """
@@ -18,6 +38,8 @@ def insert_trade_log(conn, row, company_map, run_id):
         run_id,
         strategy_name,
         strategy_version,
+        strategy_config_version,
+        config_hash,
         ticker_code,
         company_name,
         buy_date,
@@ -31,14 +53,14 @@ def insert_trade_log(conn, row, company_map, run_id):
         sell_close_price,
         sell_low_price,
         buy_info,
-        sell_info,
-        config_snapshot
+        sell_info
     )
     VALUES (
-        %s, %s, %s, %s, %s, %s, %s, %s, %s,
+        %s, %s, %s, %s, %s,
+        %s, %s, %s, %s, %s, %s,
         %s, %s, %s,
         %s, %s, %s,
-        %s, %s, %s::jsonb
+        %s::jsonb, %s::jsonb
     )
     """
 
@@ -48,7 +70,9 @@ def insert_trade_log(conn, row, company_map, run_id):
             (
                 run_id,
                 STRATEGY_NAME,
-                ENGINE_VERSION,
+                RESEARCH_ENGINE_VERSION,
+                strategy_config_version,
+                config_hash,
                 row["ticker_code"],
                 company_name,
                 row["buy_date"],
@@ -63,6 +87,5 @@ def insert_trade_log(conn, row, company_map, run_id):
                 row.get("sell_low_price"),
                 json.dumps(row["buy_info"], ensure_ascii=False),
                 json.dumps(row["sell_info"], ensure_ascii=False),
-                json.dumps(get_config_snapshot(), ensure_ascii=False),
             ),
         )

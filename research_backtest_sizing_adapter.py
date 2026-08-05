@@ -1,36 +1,22 @@
-"""Research backtest buy candidate sizing adapter.
-
-필터를 통과한 후보와 market decision을 port_strategy_common sizing 입력으로 변환한다.
-
-이 모듈은 port_strategy_decision 런타임 의존을 제거하기 위해
-Strategy Research 내부 adapter로 분리했다.
-포지션 크기 계산은 port_strategy_common에 위임하며 DB 접근은 하지 않는다.
-"""
+"""Research Backtest Buy Candidate Sizing Adapter."""
 
 from __future__ import annotations
 
-from decimal import Decimal
+from typing import Any
 
-from port_strategy_common.config import SIZING_CONFIG
+from port_strategy_common.common_buy_sizing import (
+    common_allocate_positions,
+)
 from port_strategy_common.common_result import CommonMarketDecision
-from port_strategy_common.common_buy_sizing import common_allocate_positions
 
 
-CFG = SIZING_CONFIG
-
-
-def d(v):
-    if v is None:
-        return Decimal("0")
-    return Decimal(str(v))
-
-
-def clamp(v, mn, mx):
-    return max(mn, min(v, mx))
-
-
-def allocate_positions(buy_candidates, market_decision):
-    """공통 sizing 로직을 호출해 후보별 position_size를 산출한다."""
+def allocate_positions(
+    buy_candidates,
+    market_decision,
+    *,
+    sizing_config: dict[str, Any],
+):
+    """명시적으로 받은 Sizing Config로 포지션 크기를 산출한다."""
     common_decision = CommonMarketDecision(
         market_signal=market_decision.signal_type,
         base_exposure=float(market_decision.base_exposure),
@@ -44,5 +30,5 @@ def allocate_positions(buy_candidates, market_decision):
     return common_allocate_positions(
         buy_candidates=buy_candidates,
         market_decision=common_decision,
-        config=CFG,
+        config=sizing_config,
     )

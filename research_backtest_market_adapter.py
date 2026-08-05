@@ -1,19 +1,11 @@
-"""Research backtest market decision adapter.
-
-preprocessor market feature row를 port_strategy_common 입력 컨텍스트로 변환하고,
-daily / backtest 흐름이 공유할 MarketDecision 값을 반환한다.
-
-이 모듈은 port_strategy_decision 런타임 의존을 제거하기 위해
-Strategy Research 내부 adapter로 분리했다.
-DB 접근이나 외부 API 호출은 하지 않는다.
-"""
+"""Research Backtest Market Decision Adapter."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Any
 
-from port_strategy_common.config import MARKET_CONFIG
 from port_strategy_common.common_context import CommonMarketContext
 from port_strategy_common.common_market import common_decide_market
 
@@ -28,28 +20,42 @@ class MarketDecision:
     reason: str
 
 
-CFG = MARKET_CONFIG
-
-
-def d(v):
-    if v is None:
+def d(value):
+    if value is None:
         return Decimal("0")
-    return Decimal(str(v))
+    return Decimal(str(value))
 
 
-def evaluate_market(market: dict) -> MarketDecision:
-    """공통 market 판단을 호출하고 research backtest용 dataclass로 변환한다."""
+def evaluate_market(
+    market: dict,
+    *,
+    market_config: dict[str, Any],
+) -> MarketDecision:
+    """명시적으로 받은 Market Config로 공통 시장 판단을 호출한다."""
     context = CommonMarketContext(
         trade_date=str(market.get("date", "TEST")),
-        market_regime_score=float(d(market.get("market_regime_score"))),
-        breadth_pressure_score=float(d(market.get("breadth_pressure_score"))),
-        flow_pressure_score=float(d(market.get("flow_pressure_score"))),
-        macro_pressure_score=float(d(market.get("macro_pressure_score"))),
-        program_pressure_score=float(d(market.get("program_pressure_score"))),
+        market_regime_score=float(
+            d(market.get("market_regime_score"))
+        ),
+        breadth_pressure_score=float(
+            d(market.get("breadth_pressure_score"))
+        ),
+        flow_pressure_score=float(
+            d(market.get("flow_pressure_score"))
+        ),
+        macro_pressure_score=float(
+            d(market.get("macro_pressure_score"))
+        ),
+        program_pressure_score=float(
+            d(market.get("program_pressure_score"))
+        ),
         raw=dict(market),
     )
 
-    decision = common_decide_market(context, CFG)
+    decision = common_decide_market(
+        context,
+        market_config,
+    )
 
     return MarketDecision(
         signal_type=decision.market_signal,

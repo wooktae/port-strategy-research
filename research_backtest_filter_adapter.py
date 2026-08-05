@@ -1,33 +1,22 @@
-"""Research backtest buy candidate filter adapter.
-
-stock feature 목록과 market decision을 port_strategy_common 필터 입력으로
-맞춰 전달한다.
-
-이 모듈은 port_strategy_decision 런타임 의존을 제거하기 위해
-Strategy Research 내부 adapter로 분리했다.
-자체 DB 접근은 없으며, decision reason 문자열과 공통 설정 계약을 그대로 유지한다.
-"""
+"""Research Backtest Buy Candidate Filter Adapter."""
 
 from __future__ import annotations
 
-from decimal import Decimal
+from typing import Any
 
-from port_strategy_common.config import FILTER_CONFIG
+from port_strategy_common.common_buy_filter import (
+    common_filter_buy_candidates,
+)
 from port_strategy_common.common_result import CommonMarketDecision
-from port_strategy_common.common_buy_filter import common_filter_buy_candidates
 
 
-CFG = FILTER_CONFIG
-
-
-def d(v, default="0"):
-    if v is None:
-        return Decimal(str(default))
-    return Decimal(str(v))
-
-
-def filter_buy_candidates(stock_rows, decision):
-    """공통 buy filter를 호출해 backtest 매수 후보를 선별한다."""
+def filter_buy_candidates(
+    stock_rows,
+    decision,
+    *,
+    filter_config: dict[str, Any],
+):
+    """명시적으로 받은 Filter Config로 공통 후보 필터를 호출한다."""
     common_decision = CommonMarketDecision(
         market_signal=decision.signal_type,
         base_exposure=float(decision.base_exposure),
@@ -41,5 +30,5 @@ def filter_buy_candidates(stock_rows, decision):
     return common_filter_buy_candidates(
         stock_rows=stock_rows,
         decision=common_decision,
-        config=CFG,
+        config=filter_config,
     )

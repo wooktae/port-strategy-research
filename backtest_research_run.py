@@ -1,161 +1,318 @@
-"""표준 백테스트 research run 실행 진입점.
+"""표준 백테스트 Research Run 실행 진입점.
 
-DB 연결, run 생성, 입력/config snapshot 저장, 엔진 실행, 기본 분석 저장을 순서대로 수행한다.
-실행하면 DB DDL/DML과 commit이 발생하므로 문서화/리뷰 작업에서는 직접 실행하지 않는다.
+Resolved Config Snapshot은 `strategy_backtest_run.config_snapshot`에 Run당 한 번 저장한다.
+Trade Log는 run_id·Strategy Config Version·Config Hash로 같은 Snapshot을 참조한다.
 """
 
+from __future__ import annotations
+
+import argparse
+from datetime import date
 import warnings
-import json
 
 import pandas as pd
 import psycopg2
 
-from port_strategy_common.config import MARKET_CONFIG, FILTER_CONFIG
-
-print("DEBUG neutral_min_score =", MARKET_CONFIG["neutral_min_score"])
-print("DEBUG defensive_min_score =", MARKET_CONFIG["defensive_min_score"])
-print("DEBUG flow_min =", FILTER_CONFIG["flow_min"])
-
 from port_strategy_common.config import (
     BACKTEST_START_DATE,
-    get_config_snapshot,
     DECISION_RUN_DATE,
-    FILTER_CONFIG,
-    SIZING_CONFIG,
 )
 from port_strategy_research.backtest_engine import run_backtest
-from port_strategy_research.backtest_metrics import calculate_mdd, calculate_sharpe
-from port_strategy_research.backtest_run_store import create_run, ensure_run_tables, finalize_run
-from port_strategy_research.backtest_analysis_basic import run_analysis
+from port_strategy_research.backtest_metrics import (
+    calculate_mdd,
+    calculate_sharpe,
+)
+from port_strategy_research.backtest_run_store import (
+    complete_input_snapshot,
+    create_run,
+    ensure_run_tables,
+    finalize_run,
+)
 from port_strategy_research.db_config import get_db_config
+from port_strategy_research.research_input_snapshot import (
+    InputSnapshotBuilder,
+)
+from port_strategy_research.research_version_identity import (
+    resolve_research_artifact_identity,
+)
+from port_strategy_research.strategy_profile_loader import (
+    DEFAULT_STRATEGY_CONFIG_VERSION,
+    load_strategy_config_snapshot,
+)
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
 
+def parse_args() -> argparse.Namespace:
+    """Research Backtest 실행 인자를 파싱한다."""
+    parser = argparse.ArgumentParser(
+        description="Run the versioned Research backtest.",
+    )
+    parser.add_argument(
+        "--strategy-config-version",
+        default=DEFAULT_STRATEGY_CONFIG_VERSION,
+        help=(
+            "실행할 Strategy Profile Version. "
+            f"기본값: {DEFAULT_STRATEGY_CONFIG_VERSION}"
+        ),
+    )
+    parser.add_argument(
+        "--require-artifact-identity",
+        action="store_true",
+        help=(
+            "Source SHA와 Image Digest가 모두 주입되지 않으면 "
+            "실행을 차단한다. Candidate AWS Batch에서 사용한다."
+        ),
+    )
+    parser.add_argument(
+        "--backtest-start-date",
+        default=str(BACKTEST_START_DATE),
+        help=(
+            "백테스트 시작일(YYYY-MM-DD). "
+            f"기본값: {BACKTEST_START_DATE}"
+        ),
+    )
+    parser.add_argument(
+        "--backtest-end-date",
+        default=None,
+        help=(
+            "백테스트 종료일(YYYY-MM-DD). "
+            "생략하면 Loader의 최신 거래일까지 실행한다."
+        ),
+    )
+    parser.add_argument(
+        "--skip-extended-analysis",
+        action="store_true",
+        help=(
+            "로컬 단기 통합검증에서 Extended Analysis를 생략한다. "
+            "Backtest Run 저장과 Metrics 확정은 수행한다."
+        ),
+    )
+    return parser.parse_args()
+
+
+
+def _parse_iso_date(value: str, *, argument_name: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(
+            f"{argument_name}_INVALID={value}"
+        ) from exc
+
+
+def _resolve_backtest_date_range(
+    args: argparse.Namespace,
+) -> tuple[date, date | None]:
+    start_date = _parse_iso_date(
+        args.backtest_start_date,
+        argument_name="BACKTEST_START_DATE",
+    )
+    end_date = (
+        _parse_iso_date(
+            args.backtest_end_date,
+            argument_name="BACKTEST_END_DATE",
+        )
+        if args.backtest_end_date
+        else None
+    )
+
+    if end_date is not None and end_date <= start_date:
+        raise ValueError(
+            "BACKTEST_DATE_RANGE_INVALID="
+            f"{start_date.isoformat()}..{end_date.isoformat()}"
+        )
+
+    return start_date, end_date
+
 def get_conn():
-    """백테스트 실행용 PostgreSQL connection을 생성한다."""
+    """환경변수 기반 AWS RDS PostgreSQL Connection을 생성한다."""
     return psycopg2.connect(**get_db_config())
 
 
-# =========================================================
-# CONFIG SNAPSHOT SAVE
-# =========================================================
-def save_config_snapshot(conn, run_id, config: dict):
-    """run_id별 config snapshot key/value를 저장한다."""
-    with conn.cursor() as cur:
-        # 1. raw json 저장
-        cur.execute(
-            """
-            INSERT INTO strategy_run_config (run_id, config_json)
-            VALUES (%s, %s)
-            """,
-            (run_id, json.dumps(config)),
-        )
-
-        # 2. flatten 저장
-        for category, values in config.items():
-            if isinstance(values, dict):
-                for k, v in values.items():
-                    cur.execute(
-                        """
-                        INSERT INTO strategy_run_config_kv (run_id, category, key, value)
-                        VALUES (%s, %s, %s, %s)
-                        """,
-                        (run_id, category, k, str(v)),
-                    )
-            else:
-                cur.execute(
-                    """
-                    INSERT INTO strategy_run_config_kv (run_id, category, key, value)
-                    VALUES (%s, %s, %s, %s)
-                    """,
-                    (run_id, "meta", category, str(values)),
-                )
-
-    conn.commit()
-
-
-# =========================================================
-# INPUT HISTORY SAVE
-# =========================================================
 def save_run_inputs(conn, run_id, inputs: dict):
-    """run_id별 실행 입력값을 `strategy_run_input`에 저장한다."""
+    """Run 입력값을 별도 입력 이력 테이블에 저장한다."""
     with conn.cursor() as cur:
-        for k, v in inputs.items():
+        for key, value in inputs.items():
             cur.execute(
                 """
-                INSERT INTO strategy_run_input (run_id, input_key, input_value)
+                INSERT INTO strategy_run_input
+                    (run_id, input_key, input_value)
                 VALUES (%s, %s, %s)
                 """,
-                (run_id, k, str(v)),
+                (
+                    run_id,
+                    key,
+                    str(value),
+                ),
             )
 
     conn.commit()
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """Resolved Config Snapshot과 실행 Identity를 전체 경로에 연결한다."""
+    args = parse_args()
+    selected_start_date, selected_end_date = (
+        _resolve_backtest_date_range(args)
+    )
+
+    config_snapshot = load_strategy_config_snapshot(
+        args.strategy_config_version
+    )
+    resolved_config = config_snapshot.resolved_config
+    selected_version = config_snapshot.strategy_config_version
+    artifact_identity = resolve_research_artifact_identity(
+        require_complete=args.require_artifact_identity
+    )
+
+    print(f"STRATEGY_CONFIG_VERSION={selected_version}")
+    print(f"STRATEGY_PROFILE_PATH={config_snapshot.profile_path}")
+    print(f"STRATEGY_CONFIG_HASH={config_snapshot.config_hash}")
+    print(f"BACKTEST_START_DATE={selected_start_date}")
+    print(
+        "BACKTEST_END_DATE="
+        f"{selected_end_date or 'LATEST_AVAILABLE'}"
+    )
+    print(
+        "EXTENDED_ANALYSIS="
+        f"{'SKIP' if args.skip_extended_analysis else 'RUN'}"
+    )
+    print(
+        "RESEARCH_ARTIFACT_IDENTITY_STATUS="
+        f"{artifact_identity.status}"
+    )
+    print(
+        "RESEARCH_SOURCE_SHA="
+        f"{artifact_identity.source_sha or 'UNRESOLVED'}"
+    )
+    print(
+        "RESEARCH_IMAGE_DIGEST="
+        f"{artifact_identity.image_digest or 'UNRESOLVED'}"
+    )
+
     conn = get_conn()
 
     try:
         ensure_run_tables(conn)
 
-        # =========================================================
-        # CREATE RUN
-        # =========================================================
         run_id = create_run(
             conn,
             run_mode="BACKTEST",
-            run_note="trade_log price columns + 3 report split",
+            config_snapshot=config_snapshot,
+            artifact_identity=artifact_identity,
+            run_note=(
+                "versioned resolved config persistence; "
+                f"strategy_config_version={selected_version}; "
+                f"config_hash={config_snapshot.config_hash}; "
+                f"artifact_identity_status={artifact_identity.status}"
+            ),
         )
 
-        # =========================================================
-        # SAVE CONFIG SNAPSHOT
-        # =========================================================
-        config_snapshot = get_config_snapshot()
-        save_config_snapshot(conn, run_id, config_snapshot)
-
-        # =========================================================
-        # SAVE INPUT HISTORY
-        # =========================================================
         inputs = {
             "decision_run_date": DECISION_RUN_DATE,
-            "backtest_start_date": BACKTEST_START_DATE,
-            "flow_min": str(FILTER_CONFIG["flow_min"]),
-            "vol_penalty_multiplier": str(SIZING_CONFIG["vol_penalty_multiplier"]),
+            "backtest_start_date": selected_start_date,
+            "backtest_end_date": (
+                selected_end_date or "LATEST_AVAILABLE"
+            ),
+            "strategy_config_version": selected_version,
+            "strategy_config_hash": config_snapshot.config_hash,
+            "strategy_profile_path": str(config_snapshot.profile_path),
+            "source_sha": artifact_identity.source_sha or "UNRESOLVED",
+            "image_digest": (
+                artifact_identity.image_digest or "UNRESOLVED"
+            ),
+            "artifact_identity_status": artifact_identity.status,
+            "flow_min": str(resolved_config["filter"]["flow_min"]),
+            "vol_penalty_multiplier": str(
+                resolved_config["sizing"]["vol_penalty_multiplier"]
+            ),
         }
-        save_run_inputs(conn, run_id, inputs)
+        save_run_inputs(
+            conn,
+            run_id,
+            inputs,
+        )
 
-        # =========================================================
-        # BACKTEST
-        # =========================================================
-        history = run_backtest(conn, run_id)
+        input_snapshot_builder = InputSnapshotBuilder()
+
+        history = run_backtest(
+            conn=conn,
+            run_id=run_id,
+            resolved_config=resolved_config,
+            backtest_start_date=selected_start_date,
+            backtest_end_date=selected_end_date,
+            strategy_config_version=selected_version,
+            config_hash=config_snapshot.config_hash,
+            input_snapshot_builder=input_snapshot_builder,
+        )
+
+        input_evidence = input_snapshot_builder.finalize()
+        complete_input_snapshot(
+            conn,
+            run_id,
+            input_snapshot_hash=input_evidence.snapshot_hash,
+            input_snapshot_manifest=input_evidence.manifest_json,
+        )
+
+        print(
+            "INPUT_SNAPSHOT_HASH="
+            f"{input_evidence.snapshot_hash}"
+        )
+        print(
+            "INPUT_SNAPSHOT_DATASET_COUNT="
+            f"{input_evidence.dataset_count}"
+        )
+        print(
+            "INPUT_SNAPSHOT_ITEM_COUNT="
+            f"{input_evidence.item_count}"
+        )
+        print(
+            "INPUT_SNAPSHOT_SPECIAL_VALUE_COUNT="
+            f"{input_evidence.special_value_count}"
+        )
+
         df = pd.DataFrame(history)
 
         if df.empty:
-            raise RuntimeError("Backtest history is empty. Check engine/date loading.")
+            raise RuntimeError(
+                "Backtest history is empty. Check engine/date loading."
+            )
 
-        print("\nRUN ID:", run_id)
+        print(f"\nRUN ID: {run_id}")
         print("\n===== RESULT =====")
         print(df.tail())
 
+        metrics_config = resolved_config["metrics"]
         total_return = float(df.iloc[-1]["cum_return"])
-        mdd = float(calculate_mdd(df))
-        sharpe = float(calculate_sharpe(df))
+        mdd = float(
+            calculate_mdd(
+                df,
+                metrics_config=metrics_config,
+            )
+        )
+        sharpe = float(
+            calculate_sharpe(
+                df,
+                metrics_config=metrics_config,
+            )
+        )
 
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT COUNT(*) FROM strategy_trade_log WHERE run_id = %s",
+                """
+                SELECT COUNT(*)
+                FROM strategy_trade_log
+                WHERE run_id = %s
+                """,
                 (run_id,),
             )
             trade_count = cur.fetchone()[0]
 
-        # =========================================================
-        # FINALIZE RUN
-        # =========================================================
         finalize_run(
             conn,
             run_id,
-            backtest_start_date=BACKTEST_START_DATE,
+            backtest_start_date=selected_start_date,
             backtest_end_date=str(df.iloc[-1]["date"]),
             total_return=total_return,
             mdd=mdd,
@@ -163,21 +320,25 @@ if __name__ == "__main__":
             trade_count=trade_count,
         )
 
-        # =========================================================
-        # BASIC ANALYSIS
-        # =========================================================
-        # run_analysis(conn, run_id)
+        if args.skip_extended_analysis:
+            print("EXTENDED_ANALYSIS_SKIPPED=LOCAL_RUNTIME_OPTION")
+        else:
+            from port_strategy_research.analysis_extended import (
+                run_analysis_extended,
+            )
 
-        # =========================================================
-        # EXTENDED ANALYSIS
-        # =========================================================
-        from port_strategy_research.analysis_extended import run_analysis_extended
+            run_analysis_extended(
+                conn,
+                run_id,
+            )
 
-        run_analysis_extended(conn, run_id)
-
-        print("\nTOTAL RETURN:", total_return)
+        print(f"\nTOTAL RETURN: {total_return}")
         print(f"\nMDD: {mdd:.4f}")
         print(f"Sharpe Ratio: {sharpe:.2f}")
 
     finally:
         conn.close()
+
+
+if __name__ == "__main__":
+    main()
