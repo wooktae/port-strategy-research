@@ -1,0 +1,223 @@
+name: Research CodeBuild
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      push_image:
+        description: Push the verified Git SHA image to ECR
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: research-codebuild-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  codebuild:
+    name: Research Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      CODEBUILD_PROJECT_NAME: ${{ vars.CODEBUILD_PROJECT_NAME }}
+
+    steps:
+      - name: Validate workflow configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${AWS_REGION}" ]]; then
+            echo "AWS_REGION repository variable is required"
+            exit 10
+          fi
+
+          if [[ -z "${AWS_OIDC_ROLE_ARN}" ]]; then
+            echo "AWS_OIDC_ROLE_ARN repository variable is required"
+            exit 11
+          fi
+
+          if [[ -z "${CODEBUILD_PROJECT_NAME}" ]]; then
+            echo "CODEBUILD_PROJECT_NAME repository variable is required"
+            exit 12
+          fi
+
+          if [[ ! "${GITHUB_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "GITHUB_SHA_INVALID=${GITHUB_SHA}"
+            exit 13
+          fi
+
+          echo "SOURCE_SHA=${GITHUB_SHA}"
+          echo "WORKFLOW_CONFIGURATION=SUCCESS"
+
+      - name: Resolve publish gate
+        id: release
+        shell: bash
+        env:
+          DISPATCH_PUSH_IMAGE: ${{ inputs.push_image }}
+        run: |
+          set -euo pipefail
+
+          PUSH_IMAGE="false"
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            if [[ "${DISPATCH_PUSH_IMAGE}" == "true" ]]; then
+              PUSH_IMAGE="true"
+            fi
+          fi
+
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${PUSH_IMAGE}" != "false" ]]; then
+            echo "MAIN_PUSH_MUST_NOT_PUBLISH"
+            exit 20
+          fi
+
+          echo "push_image=${PUSH_IMAGE}" >> "${GITHUB_OUTPUT}"
+
+          echo "GITHUB_EVENT_NAME=${GITHUB_EVENT_NAME}"
+          echo "PUSH_IMAGE=${PUSH_IMAGE}"
+          echo "RELEASE_STAGE=BUILD_ONLY"
+          echo "DEPLOYMENT_EXECUTED=NO"
+          echo "PUBLISH_GATE_RESOLUTION=SUCCESS"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: research-codebuild-${{ github.run_id }}
+
+      - name: Verify AWS identity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          AWS_ACCOUNT_ID="$(
+            aws sts get-caller-identity \
+              --query Account \
+              --output text
+          )"
+
+          if [[ ! "${AWS_ACCOUNT_ID}" =~ ^[0-9]{12}$ ]]; then
+            echo "AWS_ACCOUNT_ID_INVALID=${AWS_ACCOUNT_ID}"
+            exit 30
+          fi
+
+          echo "AWS_ACCOUNT_ID_RESOLVED=YES"
+          echo "AWS_OIDC_AUTHENTICATION=SUCCESS"
+
+      - name: Start Research CodeBuild
+        id: start
+        shell: bash
+        env:
+          PUSH_IMAGE: ${{ steps.release.outputs.push_image }}
+        run: |
+          set -euo pipefail
+
+          BUILD_ID="$(
+            aws codebuild start-build \
+              --region "${AWS_REGION}" \
+              --project-name "${CODEBUILD_PROJECT_NAME}" \
+              --source-version "${GITHUB_SHA}" \
+              --environment-variables-override \
+                name=PUSH_IMAGE,value="${PUSH_IMAGE}",type=PLAINTEXT \
+                name=RELEASE_STAGE,value=BUILD_ONLY,type=PLAINTEXT \
+              --query 'build.id' \
+              --output text
+          )"
+
+          if [[ -z "${BUILD_ID}" || "${BUILD_ID}" == "None" ]]; then
+            echo "CODEBUILD_BUILD_ID_EMPTY"
+            exit 40
+          fi
+
+          echo "build_id=${BUILD_ID}" >> "${GITHUB_OUTPUT}"
+
+          echo "SOURCE_SHA=${GITHUB_SHA}"
+          echo "PUSH_IMAGE=${PUSH_IMAGE}"
+          echo "CODEBUILD_START=SUCCESS"
+
+      - name: Wait for Research CodeBuild
+        shell: bash
+        env:
+          BUILD_ID: ${{ steps.start.outputs.build_id }}
+        run: |
+          set -euo pipefail
+
+          TERMINAL_STATUSES=(
+            SUCCEEDED
+            FAILED
+            FAULT
+            STOPPED
+            TIMED_OUT
+          )
+
+          while true; do
+            BUILD_STATUS="$(
+              aws codebuild batch-get-builds \
+                --region "${AWS_REGION}" \
+                --ids "${BUILD_ID}" \
+                --query 'builds[0].buildStatus' \
+                --output text
+            )"
+
+            if [[ -z "${BUILD_STATUS}" || "${BUILD_STATUS}" == "None" ]]; then
+              echo "CODEBUILD_STATUS_EMPTY"
+              exit 50
+            fi
+
+            echo "CODEBUILD_STATUS=${BUILD_STATUS}"
+
+            IS_TERMINAL="false"
+
+            for status in "${TERMINAL_STATUSES[@]}"; do
+              if [[ "${BUILD_STATUS}" == "${status}" ]]; then
+                IS_TERMINAL="true"
+                break
+              fi
+            done
+
+            if [[ "${IS_TERMINAL}" == "true" ]]; then
+              break
+            fi
+
+            sleep 10
+          done
+
+          if [[ "${BUILD_STATUS}" != "SUCCEEDED" ]]; then
+            echo "RESEARCH_CODEBUILD_RESULT=${BUILD_STATUS}"
+            exit 51
+          fi
+
+          echo "RESEARCH_CODEBUILD_RESULT=SUCCEEDED"
+          echo "DEPLOYMENT_EXECUTED=NO"
+          echo "RESEARCH_WORKFLOW=SUCCESS"
+
+      - name: Publish workflow summary
+        if: always()
+        shell: bash
+        env:
+          PUSH_IMAGE: ${{ steps.release.outputs.push_image }}
+          BUILD_ID: ${{ steps.start.outputs.build_id }}
+        run: |
+          {
+            echo "## Research CodeBuild"
+            echo
+            echo "| Item | Value |"
+            echo "| --- | --- |"
+            echo "| Source SHA | \`${GITHUB_SHA:0:12}\` |"
+            echo "| Event | \`${GITHUB_EVENT_NAME}\` |"
+            echo "| Push Image | \`${PUSH_IMAGE:-false}\` |"
+            echo "| Release Stage | \`BUILD_ONLY\` |"
+            echo "| CodeBuild Started | \`${BUILD_ID:+YES}\` |"
+            echo "| Deployment Executed | \`NO\` |"
+          } >> "${GITHUB_STEP_SUMMARY}"

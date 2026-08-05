@@ -1,0 +1,415 @@
+version: 0.2
+
+env:
+  shell: bash
+  variables:
+    AWS_DEFAULT_REGION: ap-northeast-2
+    IMAGE_REPO_NAME: portfolio-strategy-research
+    PUSH_IMAGE: "false"
+    RELEASE_STAGE: BUILD_ONLY
+    COMMON_PACKAGE_NAME: port-strategy-common
+    COMMON_PACKAGE_VERSION: "1.0.0"
+    COMMON_WHEEL_PATH: .devops/packages/port_strategy_common-1.0.0-py3-none-any.whl
+    COMMON_WHEEL_SHA256: d607f334cf019d62a199079e7f1a997206df4d5ffc9058bbf85f0e1bfd800682
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.13
+    commands:
+      - set -euo pipefail
+      - echo "=== INSTALL RESEARCH BUILD DEPENDENCIES ==="
+      - python --version
+      - python -m pip --version
+      - docker --version
+      - aws --version
+      - python -m pip install --upgrade pip
+      - python -m pip install -r requirements.txt
+
+  pre_build:
+    commands:
+      - set -euo pipefail
+      - echo "=== VERIFY BUILD-ONLY RELEASE CONTRACT ==="
+      - |
+        if [[ "${RELEASE_STAGE}" != "BUILD_ONLY" ]]; then
+          echo "UNSUPPORTED_RELEASE_STAGE=${RELEASE_STAGE}"
+          exit 10
+        fi
+
+        if [[ "${PUSH_IMAGE}" != "true" && "${PUSH_IMAGE}" != "false" ]]; then
+          echo "PUSH_IMAGE_VALUE_INVALID=${PUSH_IMAGE}"
+          exit 11
+        fi
+
+        echo "RELEASE_STAGE=${RELEASE_STAGE}"
+        echo "PUSH_IMAGE=${PUSH_IMAGE}"
+        echo "CANDIDATE_JOB_DEFINITION_REGISTRATION=DISABLED"
+        echo "DEPLOYMENT_EXECUTED=NO"
+        echo "SCHEDULER_CONNECTION_EXECUTED=NO"
+        echo "STEP_FUNCTIONS_UPDATE_EXECUTED=NO"
+
+      - echo "=== VERIFY SOURCE IDENTITY ==="
+      - |
+        SOURCE_SHA="${CODEBUILD_RESOLVED_SOURCE_VERSION:-}"
+        SOURCE_SHA="${SOURCE_SHA,,}"
+
+        if [[ ! "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "SOURCE_SHA_INVALID=${SOURCE_SHA}"
+          exit 20
+        fi
+
+        SHORT_SHA="${SOURCE_SHA:0:12}"
+
+        if [[ ! "${SHORT_SHA}" =~ ^[0-9a-f]{12}$ ]]; then
+          echo "SHORT_SHA_INVALID=${SHORT_SHA}"
+          exit 21
+        fi
+
+        AWS_ACCOUNT_ID="$(
+          aws sts get-caller-identity \
+            --query Account \
+            --output text
+        )"
+
+        if [[ ! "${AWS_ACCOUNT_ID}" =~ ^[0-9]{12}$ ]]; then
+          echo "AWS_ACCOUNT_ID_INVALID=${AWS_ACCOUNT_ID}"
+          exit 22
+        fi
+
+        ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com"
+        IMAGE_TAG="${SHORT_SHA}"
+        IMAGE_URI="${ECR_REGISTRY}/${IMAGE_REPO_NAME}:${IMAGE_TAG}"
+
+        PACKAGE_PARENT="/tmp/research-codebuild-package"
+        rm -rf "${PACKAGE_PARENT}"
+        mkdir -p "${PACKAGE_PARENT}"
+        ln -s "${CODEBUILD_SRC_DIR}" "${PACKAGE_PARENT}/port_strategy_research"
+
+        export SOURCE_SHA
+        export SHORT_SHA
+        export AWS_ACCOUNT_ID
+        export ECR_REGISTRY
+        export IMAGE_TAG
+        export IMAGE_URI
+        export PACKAGE_PARENT
+        export PYTHONPATH="${PACKAGE_PARENT}"
+
+        cat > /tmp/research-build-env.sh <<EOF
+        export SOURCE_SHA='${SOURCE_SHA}'
+        export SHORT_SHA='${SHORT_SHA}'
+        export AWS_ACCOUNT_ID='${AWS_ACCOUNT_ID}'
+        export ECR_REGISTRY='${ECR_REGISTRY}'
+        export IMAGE_TAG='${IMAGE_TAG}'
+        export IMAGE_URI='${IMAGE_URI}'
+        export PACKAGE_PARENT='${PACKAGE_PARENT}'
+        export PYTHONPATH='${PACKAGE_PARENT}'
+        EOF
+
+        mkdir -p .devops/evidence
+
+        {
+          echo "SOURCE_SHA=${SOURCE_SHA}"
+          echo "SHORT_SHA=${SHORT_SHA}"
+          echo "IMAGE_TAG=${IMAGE_TAG}"
+          echo "IMAGE_URI=${IMAGE_URI}"
+          echo "IMAGE_REPO_NAME=${IMAGE_REPO_NAME}"
+          echo "PUSH_IMAGE=${PUSH_IMAGE}"
+          echo "RELEASE_STAGE=${RELEASE_STAGE}"
+          echo "DEPLOYMENT_EXECUTED=NO"
+        } > .devops/evidence/research-build.env
+
+        echo "SOURCE_SHA=${SOURCE_SHA}"
+        echo "SHORT_SHA=${SHORT_SHA}"
+        echo "IMAGE_TAG=${IMAGE_TAG}"
+        echo "IMAGE_URI=${IMAGE_URI}"
+        echo "SOURCE_IDENTITY=SUCCESS"
+
+      - echo "=== VERIFY COMMON WHEEL ARTIFACT ==="
+      - |
+        source /tmp/research-build-env.sh
+
+        if [[ ! -f "${COMMON_WHEEL_PATH}" ]]; then
+          echo "COMMON_WHEEL_NOT_FOUND=${COMMON_WHEEL_PATH}"
+          exit 30
+        fi
+
+        ACTUAL_WHEEL_SHA256="$(
+          sha256sum "${COMMON_WHEEL_PATH}" |
+          awk '{print $1}'
+        )"
+
+        if [[ "${ACTUAL_WHEEL_SHA256}" != "${COMMON_WHEEL_SHA256}" ]]; then
+          echo "COMMON_WHEEL_SHA256_EXPECTED=${COMMON_WHEEL_SHA256}"
+          echo "COMMON_WHEEL_SHA256_ACTUAL=${ACTUAL_WHEEL_SHA256}"
+          exit 31
+        fi
+
+        python -m pip install \
+          --no-cache-dir \
+          --no-deps \
+          --force-reinstall \
+          "${COMMON_WHEEL_PATH}"
+
+        python - <<'PY'
+        import importlib.metadata
+
+        expected = "1.0.0"
+        actual = importlib.metadata.version("port-strategy-common")
+
+        if actual != expected:
+            raise SystemExit(
+                f"COMMON_PACKAGE_VERSION_MISMATCH={actual}"
+            )
+
+        print(f"COMMON_PACKAGE_VERSION={actual}")
+        print("COMMON_WHEEL_INSTALL=SUCCESS")
+        PY
+
+        echo "COMMON_WHEEL_SHA256=${ACTUAL_WHEEL_SHA256}"
+        echo "COMMON_WHEEL_ARTIFACT_VERIFY=SUCCESS"
+
+      - echo "=== VERIFY PYTHON COMPILE ==="
+      - |
+        source /tmp/research-build-env.sh
+
+        mapfile -t PYTHON_FILES < <(
+          find . \
+            -type f \
+            -name '*.py' \
+            -not -path './.git/*' \
+            -not -path './.venv/*' \
+            -not -path './venv/*' \
+            -not -path '*/__pycache__/*' \
+            | sort
+        )
+
+        if [[ "${#PYTHON_FILES[@]}" -eq 0 ]]; then
+          echo "PYTHON_FILE_COUNT=0"
+          exit 40
+        fi
+
+        for file in "${PYTHON_FILES[@]}"; do
+          python -m py_compile "${file}"
+        done
+
+        echo "PYTHON_COMPILE_FILE_COUNT=${#PYTHON_FILES[@]}"
+        echo "RESEARCH_PYTHON_COMPILE=SUCCESS"
+
+      - echo "=== RUN RESEARCH INTERNAL CONTRACT TESTS ==="
+      - |
+        source /tmp/research-build-env.sh
+
+        VERIFY_MODULES=(
+          verify_common_package_version
+          verify_common_strategy_version
+          verify_research_engine_version
+          verify_strategy_profile_schema
+          verify_strategy_config_snapshot
+          verify_strategy_config_version
+          verify_metrics_config_version
+          verify_artifact_identity
+          verify_artifact_identity_compatibility
+          verify_input_snapshot_hash
+          verify_input_snapshot_compatibility
+          verify_config_injection
+          verify_buy_guard_config
+          verify_run_config_persistence
+          verify_backtest_end_date_compatibility
+          verify_missing_data_runtime
+        )
+
+        for module in "${VERIFY_MODULES[@]}"; do
+          echo "--- RUN port_strategy_research.${module} ---"
+          python -m "port_strategy_research.${module}"
+        done
+
+        echo "RESEARCH_INTERNAL_CONTRACT_COUNT=${#VERIFY_MODULES[@]}"
+        echo "RESEARCH_INTERNAL_CONTRACTS=SUCCESS"
+
+        echo "CROSS_REPOSITORY_CONTRACT=verify_decision_buy_guard_impact"
+        echo "CROSS_REPOSITORY_CONTRACT_EXECUTED=NO"
+        echo "CROSS_REPOSITORY_CONTRACT_REASON=DECISION_SOURCE_NOT_IN_RESEARCH_CODEBUILD_CONTEXT"
+
+      - echo "=== RUN CANDIDATE STATIC CONTRACT ==="
+      - |
+        source /tmp/research-build-env.sh
+
+        python .devops/scripts/verify-candidate-contract.py
+
+        echo "RESEARCH_CANDIDATE_STATIC_CONTRACT=SUCCESS"
+
+      - echo "=== VERIFY ECR REPOSITORY ==="
+      - |
+        source /tmp/research-build-env.sh
+
+        aws ecr describe-repositories \
+          --region "${AWS_DEFAULT_REGION}" \
+          --repository-names "${IMAGE_REPO_NAME}" \
+          >/tmp/research-ecr-repository.json
+
+        echo "ECR_REPOSITORY=${IMAGE_REPO_NAME}"
+        echo "RESEARCH_ECR_REPOSITORY_VERIFY=SUCCESS"
+
+  build:
+    commands:
+      - set -euo pipefail
+      - echo "=== BUILD GIT SHA RESEARCH IMAGE ==="
+      - |
+        source /tmp/research-build-env.sh
+
+        docker build \
+          --pull \
+          --label "org.opencontainers.image.revision=${SOURCE_SHA}" \
+          --label "portfolio.research.source-sha=${SOURCE_SHA}" \
+          --tag "${IMAGE_URI}" \
+          .
+
+        echo "RESEARCH_DOCKER_BUILD=SUCCESS"
+
+      - echo "=== VERIFY LOCAL IMAGE METADATA ==="
+      - |
+        source /tmp/research-build-env.sh
+
+        IMAGE_INSPECT_JSON="$(
+          docker image inspect "${IMAGE_URI}"
+        )"
+
+        export IMAGE_INSPECT_JSON
+
+        python - <<'PY'
+        import json
+        import os
+        import re
+
+        images = json.loads(os.environ["IMAGE_INSPECT_JSON"])
+
+        if len(images) != 1:
+            raise SystemExit(
+                f"LOCAL_IMAGE_RESULT_COUNT_INVALID={len(images)}"
+            )
+
+        image = images[0]
+        image_id = image["Id"]
+        labels = image["Config"].get("Labels") or {}
+        command = image["Config"].get("Cmd") or []
+
+        source_sha = os.environ["SOURCE_SHA"]
+
+        if re.fullmatch(r"sha256:[0-9a-f]{64}", image_id) is None:
+            raise SystemExit(
+                f"LOCAL_IMAGE_ID_INVALID={image_id}"
+            )
+
+        if labels.get(
+            "org.opencontainers.image.revision"
+        ) != source_sha:
+            raise SystemExit(
+                "OCI_REVISION_LABEL_MISMATCH"
+            )
+
+        if labels.get(
+            "portfolio.research.source-sha"
+        ) != source_sha:
+            raise SystemExit(
+                "RESEARCH_SOURCE_SHA_LABEL_MISMATCH"
+            )
+
+        expected_command = [
+            "python",
+            "-m",
+            "py_compile",
+            "port_strategy_research/backtest_research_run.py",
+        ]
+
+        if command != expected_command:
+            raise SystemExit(
+                f"DEFAULT_CMD_MISMATCH={command}"
+            )
+
+        print(f"LOCAL_IMAGE_ID={image_id}")
+        print("LOCAL_IMAGE_METADATA=SUCCESS")
+        PY
+
+      - echo "=== RUN CONTAINER SMOKE TEST ==="
+      - |
+        source /tmp/research-build-env.sh
+
+        python .devops/scripts/container-smoke.py \
+          --image "${IMAGE_URI}"
+
+        echo "RESEARCH_CONTAINER_SMOKE_VERIFY=SUCCESS"
+
+      - echo "=== OPTIONAL VERIFIED IMAGE PUSH ==="
+      - |
+        source /tmp/research-build-env.sh
+
+        if [[ "${PUSH_IMAGE}" == "true" ]]; then
+          aws ecr get-login-password \
+            --region "${AWS_DEFAULT_REGION}" |
+            docker login \
+              --username AWS \
+              --password-stdin "${ECR_REGISTRY}"
+
+          docker push "${IMAGE_URI}"
+
+          IMAGE_DIGEST="$(
+            aws ecr describe-images \
+              --region "${AWS_DEFAULT_REGION}" \
+              --repository-name "${IMAGE_REPO_NAME}" \
+              --image-ids imageTag="${IMAGE_TAG}" \
+              --query "imageDetails[0].imageDigest" \
+              --output text
+          )"
+
+          if [[ ! "${IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "IMAGE_DIGEST_INVALID=${IMAGE_DIGEST}"
+            exit 50
+          fi
+
+          {
+            echo "IMAGE_URI=${IMAGE_URI}"
+            echo "IMAGE_DIGEST=${IMAGE_DIGEST}"
+            echo "ARTIFACT_PROMOTED_TO_ECR=YES"
+            echo "DEPLOYMENT_EXECUTED=NO"
+          } > .devops/evidence/research-image-digest.env
+
+          echo "IMAGE_DIGEST=${IMAGE_DIGEST}"
+          echo "ECR_PUSH=SUCCESS"
+          echo "DEPLOYMENT_EXECUTED=NO"
+        else
+          {
+            echo "IMAGE_URI=${IMAGE_URI}"
+            echo "IMAGE_DIGEST=UNRESOLVED"
+            echo "ARTIFACT_PROMOTED_TO_ECR=NO"
+            echo "DEPLOYMENT_EXECUTED=NO"
+          } > .devops/evidence/research-image-digest.env
+
+          echo "ECR_PUSH=SKIPPED"
+          echo "IMAGE_DIGEST=UNRESOLVED"
+          echo "DEPLOYMENT_EXECUTED=NO"
+        fi
+
+  post_build:
+    commands:
+      - |
+        if [[ "${CODEBUILD_BUILD_SUCCEEDING:-0}" != "1" ]]; then
+          echo "RESEARCH_CODEBUILD=FAILED"
+          exit 60
+        fi
+
+        source /tmp/research-build-env.sh
+
+        echo "SOURCE_SHA=${SOURCE_SHA}"
+        echo "SHORT_SHA=${SHORT_SHA}"
+        echo "IMAGE_TAG=${IMAGE_TAG}"
+        echo "IMAGE_URI=${IMAGE_URI}"
+        echo "PUSH_IMAGE=${PUSH_IMAGE}"
+        echo "RELEASE_STAGE=${RELEASE_STAGE}"
+        echo "CANDIDATE_JOB_DEFINITION_REGISTRATION=DISABLED"
+        echo "DEPLOYMENT_EXECUTED=NO"
+        echo "RESEARCH_CODEBUILD=SUCCESS"
+
+artifacts:
+  files:
+    - .devops/evidence/**/*
+  discard-paths: no

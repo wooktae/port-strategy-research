@@ -13,3 +13,11 @@ README.md
 CHANGELOG.md
 docs
 .devops/scripts
+.github
+.kiro
+.pytest_cache
+.devops/evidence
+.coverage
+coverage.xml
+htmlcov
+*.log
