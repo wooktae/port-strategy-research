@@ -26,6 +26,7 @@ from port_strategy_research.backtest_run_store import (
     complete_input_snapshot,
     create_run,
     ensure_run_tables,
+    fail_run,
     finalize_run,
 )
 from port_strategy_research.db_config import get_db_config
@@ -47,6 +48,16 @@ def parse_args() -> argparse.Namespace:
     """Research Backtest 실행 인자를 파싱한다."""
     parser = argparse.ArgumentParser(
         description="Run the versioned Research backtest.",
+    )
+    parser.add_argument(
+        "--run-mode",
+        choices=("BACKTEST", "CANDIDATE"),
+        default="BACKTEST",
+        type=str.upper,
+        help=(
+            "Run 저장 영역. 기본값은 운영 호환을 위한 BACKTEST이며, "
+            "AWS Batch Candidate는 CANDIDATE를 명시한다."
+        ),
     )
     parser.add_argument(
         "--strategy-config-version",
@@ -153,6 +164,7 @@ def save_run_inputs(conn, run_id, inputs: dict):
 def main() -> None:
     """Resolved Config Snapshot과 실행 Identity를 전체 경로에 연결한다."""
     args = parse_args()
+    selected_run_mode = args.run_mode
     selected_start_date, selected_end_date = (
         _resolve_backtest_date_range(args)
     )
@@ -166,6 +178,7 @@ def main() -> None:
         require_complete=args.require_artifact_identity
     )
 
+    print(f"RUN_MODE={selected_run_mode}")
     print(f"STRATEGY_CONFIG_VERSION={selected_version}")
     print(f"STRATEGY_PROFILE_PATH={config_snapshot.profile_path}")
     print(f"STRATEGY_CONFIG_HASH={config_snapshot.config_hash}")
@@ -192,17 +205,19 @@ def main() -> None:
     )
 
     conn = get_conn()
+    run_id: str | None = None
 
     try:
         ensure_run_tables(conn)
 
         run_id = create_run(
             conn,
-            run_mode="BACKTEST",
+            run_mode=selected_run_mode,
             config_snapshot=config_snapshot,
             artifact_identity=artifact_identity,
             run_note=(
                 "versioned resolved config persistence; "
+                f"run_mode={selected_run_mode}; "
                 f"strategy_config_version={selected_version}; "
                 f"config_hash={config_snapshot.config_hash}; "
                 f"artifact_identity_status={artifact_identity.status}"
@@ -210,6 +225,7 @@ def main() -> None:
         )
 
         inputs = {
+            "run_mode": selected_run_mode,
             "decision_run_date": DECISION_RUN_DATE,
             "backtest_start_date": selected_start_date,
             "backtest_end_date": (
@@ -335,6 +351,31 @@ def main() -> None:
         print(f"\nTOTAL RETURN: {total_return}")
         print(f"\nMDD: {mdd:.4f}")
         print(f"Sharpe Ratio: {sharpe:.2f}")
+
+    except Exception as exc:
+        if run_id is not None:
+            try:
+                conn.rollback()
+                fail_run(
+                    conn,
+                    run_id,
+                    backtest_start_date=selected_start_date,
+                    backtest_end_date=selected_end_date,
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
+                )
+                print(f"RUN_FAILED_ID={run_id}")
+                print(
+                    "RUN_FAILED_ERROR_TYPE="
+                    f"{type(exc).__name__}"
+                )
+            except Exception as failure_record_error:
+                print(
+                    "RUN_FAILURE_RECORD_ERROR="
+                    f"{type(failure_record_error).__name__}:"
+                    f"{failure_record_error}"
+                )
+        raise
 
     finally:
         conn.close()

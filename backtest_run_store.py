@@ -23,6 +23,12 @@ from port_strategy_research.strategy_config_snapshot import (
 )
 
 
+ALLOWED_RUN_MODES = frozenset({
+    "BACKTEST",
+    "CANDIDATE",
+})
+
+
 def ensure_run_tables(conn) -> None:
     """Run·Trade Config 식별 컬럼과 필요한 인덱스를 생성 또는 보강한다."""
     ddl = """
@@ -133,6 +139,13 @@ def create_run(
     이 경우 UNRESOLVED 상태로 저장한다. Candidate 실행은 Entrypoint의
     ``--require-artifact-identity`` Gate에서 COMPLETE Identity를 강제한다.
     """
+    normalized_run_mode = str(run_mode).strip().upper()
+    if normalized_run_mode not in ALLOWED_RUN_MODES:
+        raise ValueError(
+            "RUN_MODE_INVALID="
+            f"{run_mode}; allowed={sorted(ALLOWED_RUN_MODES)}"
+        )
+
     run_id = str(uuid.uuid4())
     metrics_identity = resolve_metrics_config_identity(
         config_snapshot
@@ -182,7 +195,7 @@ def create_run(
                 effective_artifact_identity.status,
                 config_snapshot.config_hash,
                 str(config_snapshot.profile_path),
-                run_mode,
+                normalized_run_mode,
                 run_note,
                 run_date,
                 config_snapshot.canonical_json,
@@ -327,6 +340,57 @@ def insert_daily_positions(
                     ),
                 ),
             )
+
+
+def fail_run(
+    conn,
+    run_id: str,
+    *,
+    backtest_start_date: str | None,
+    backtest_end_date: str | None,
+    error_type: str,
+    error_message: str,
+) -> None:
+    """실패한 Run에 종료 시각·실행 범위·실패 사유를 남긴다."""
+    normalized_error_type = str(error_type).strip() or "Exception"
+    normalized_error_message = (
+        str(error_message).strip() or "UNKNOWN_ERROR"
+    )
+    failure_note = (
+        "run_status=FAILED; "
+        f"error_type={normalized_error_type}; "
+        f"error_message={normalized_error_message}"
+    )
+
+    sql = """
+    UPDATE strategy_backtest_run
+    SET finished_at = now(),
+        backtest_start_date = COALESCE(
+            backtest_start_date,
+            %s
+        ),
+        backtest_end_date = COALESCE(
+            backtest_end_date,
+            %s
+        ),
+        run_note = concat_ws(
+            '; ',
+            NULLIF(run_note, ''),
+            %s
+        )
+    WHERE run_id = %s
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            sql,
+            (
+                backtest_start_date,
+                backtest_end_date,
+                failure_note,
+                run_id,
+            ),
+        )
+    conn.commit()
 
 
 def finalize_run(

@@ -29,11 +29,13 @@ def to_float(v: Any, default: Optional[float] = 0.0) -> Optional[float]:
 
 
 def get_latest_run_id(cur) -> Optional[str]:
-    """가장 최근에 시작된 backtest run_id를 조회한다."""
+    """가장 최근에 완료된 운영 BACKTEST run_id를 조회한다."""
     cur.execute(
         """
         SELECT run_id
         FROM strategy_backtest_run
+        WHERE run_mode = 'BACKTEST'
+          AND finished_at IS NOT NULL
         ORDER BY started_at DESC
         LIMIT 1
         """
