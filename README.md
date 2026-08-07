@@ -3,10 +3,19 @@
 `port_strategy_research`는 전처리 feature와 가격·universe 데이터를 읽어 포트폴리오 백테스트를 수행하고,
 저장된 결과를 분석해 텍스트 리포트를 생성하는 Research 마이크로서비스다.
 
+현재 Research는 단일 고정 Config 백테스트 실행기가 아니라, 고정된 Common 판단 Engine에
+Version별 Strategy Profile을 선택·주입하는 `Versioned Backtest Platform`이다.
+Common은 판단 함수와 기본 계약을 제공하고, Research는 Version별 `Strategy Profile`을 선택해
+전체 Backtest Run에 명시적으로 주입한다.
+
 Research는 내부 adapter를 통해 `port_strategy_common`의 market, filter, sizing, guard와 sell 계약을 직접 사용한다.
 `port_strategy_decision`을 런타임에 import하지 않으며, 두 서비스는 동일한 Common 계약을 사용하는 별도 소비자다.
 
-이 문서는 현재 저장소의 파일 구조, import, entrypoint와 기존 운영 문서를 기준으로 작성했다.
+Research 결과는 여전히 연구·검증 산출물이다.
+Daily Signal, Execution Plan과 실제 주문은 Research 책임이 아니다.
+Research 실행 Artifact 배포와 Strategy 운영 성과 승격은 서로 다른 절차다.
+
+이 문서는 현재 저장소의 파일 구조, import, entrypoint와 실제 소스를 기준으로 작성했다.
 문서 정리 과정에서는 실제 Backtest, Analysis, Report, DB 쓰기, AWS, S3와 주문 실행을 수행하지 않았다.
 
 ## 1. 서비스 요약
@@ -15,11 +24,13 @@ Research는 내부 adapter를 통해 `port_strategy_common`의 market, filter, s
 |---|---|
 | 서비스 | `port_strategy_research` |
 | 계층 | Research |
-| 주요 입력 | Market·Stock Feature, Price Raw, Stock Universe와 Config |
+| 성격 | Versioned Backtest Platform |
+| 공통 로직 | `port_strategy_common` Wheel `1.0.0` 고정 설치 |
+| 전략 설정 | Version별 Strategy Profile (`strategy_profiles/`) |
+| 기본 Baseline | `RSCFG-0001` |
 | 핵심 실행 | Backtest Research |
-| 후속 처리 | Basic·Extended Analysis와 Text Report |
+| Run Mode | `BACKTEST`, `CANDIDATE` |
 | 주요 저장 | Run, Daily, Daily Position, Trade Log와 Analysis |
-| 공통 로직 | `port_strategy_common` |
 | 운영 진입점 | `backtest_research_run.py`, `backtest_report_run.py` |
 | AWS 위치 | Paper Daily Step 4, Step 5 |
 | 상세 파일 문서 | `docs/source-file-catalog.md` |
@@ -33,13 +44,14 @@ Research는 과거 구간을 시뮬레이션하고 그 결과를 분석·표현�
 
 | 영역 | 책임 |
 |---|---|
+| Strategy Profile | Version별 Config 선택과 Resolved Config 주입 |
 | Backtest | 거래일 단위 포트폴리오 시뮬레이션 |
 | Market | Common Market 판단을 Research adapter로 호출 |
 | Buy Filter | Common Buy Candidate Filter 호출 |
 | Sizing | 후보별 Position Allocation 계산 |
 | Buy·Sell | Guard, Haircut과 Common Sell 판단 적용 |
 | Position | 보유, 청산과 다음 거래일 이월 처리 |
-| Persistence | Run, Daily, Daily Position과 Trade Log 저장 |
+| Persistence | Run, Daily, Daily Position, Trade Log와 Config·Identity 저장 |
 | Analysis | Basic·Extended Analysis 생성 또는 갱신 |
 | Report | Summary, Buy·Sell, Trade Detail과 Recommendation 생성 |
 | Research 후보 | Block Watch와 Exception Buy 시나리오 연구 |
@@ -60,12 +72,203 @@ Research는 과거 구간을 시뮬레이션하고 그 결과를 분석·표현�
 Research 결과는 연구·검증 산출물이다.
 Daily Signal, Execution Plan 또는 실제 주문으로 표현하지 않는다.
 
-## 3. 전체 실행 흐름
+## 3. Versioned Backtest Platform
+
+Research는 고정된 Common 판단 Engine에 Version별 Strategy Profile을 주입한다.
+전략 설정은 Common Default와 Profile Override를 병합한 Resolved Config로 확정된다.
+
+### 3.1 Config 데이터 흐름
 
 ```text
-Preprocessor Feature + Price + Universe + Config
+Strategy Profile (RSCFG-0001.json)
+  → Load       프로파일 JSON 로드
+  → Resolve    Common Default + Profile Override 병합
+  → Validate   Schema, 허용 Category·Key, Type과 Metadata 검증
+  → Hash       Canonical JSON과 SHA-256 Config Hash 생성
+  → Inject     Engine과 Adapter에 Resolved Config 명시적 주입
+  → Persist    Run에 Config Snapshot·Hash·Version Identity 저장
+```
+
+| 단계 | 파일 |
+|---|---|
+| Load·Resolve·Snapshot | `strategy_profile_loader.py` |
+| Schema·병합 검증 | `strategy_profile_schema.py` |
+| Canonical JSON·Hash | `strategy_config_snapshot.py` |
+| Version Identity | `research_version_identity.py` |
+| Engine 주입 | `backtest_engine.py` |
+| Run·Config 저장 | `backtest_run_store.py` |
+
+### 3.2 Common Wheel 소비 구조
+
+| 항목 | 현재 구조 |
+|---|---|
+| Common 포함 방식 | Common Source Directory Copy가 아니라 Wheel Package 설치 |
+| 설치 대상 | `port_strategy_common-1.0.0-py3-none-any.whl` |
+| Runtime Version Source | 실제 설치된 Distribution Metadata Version |
+| Package Version 검증 | Profile 선언 Version과 설치 Version이 다르면 실행 차단 |
+| Strategy Version 검증 | Runtime 값과 Profile 선언 값이 다르면 실행 차단 |
+| Consumer 관계 | Decision과 Research가 동일 Common Package 계약을 소비 |
+
+Common Package와 Research Source의 책임을 혼동하지 않는다.
+Common은 판단 계약을 제공하고, Research는 Version별 Profile 선택과 주입을 담당한다.
+
+### 3.3 Strategy Profile
+
+`strategy_profiles/`는 Version별 Strategy Profile을 관리한다.
+`strategy_config_version`이 Profile Identity이며, `RSCFG-0001`이 현재 기본 Baseline이다.
+
+| Config Category | 성격 |
+|---|---|
+| `metadata` | Profile·Version Metadata |
+| `market` | Market Regime과 Exposure 기준 |
+| `filter` | Buy Filter 기준 |
+| `sizing` | Position Sizing 기준 |
+| `buy_guard` | Buy Guard와 Haircut 기준 |
+| `buy` | 매수 실행 관련 값 |
+| `sell` | Sell 판단 기준 |
+| `backtest_policy` | 재진입, Return Floor와 Risk-off 정책 |
+| `metrics` | Risk-free Rate와 연간 거래일 |
+
+Profile 검증 계약:
+
+| 항목 | 기준 |
+|---|---|
+| 파일명·Version | Profile 파일명과 선언 `strategy_config_version` 일치 |
+| Metadata | 필수 Metadata Key 존재와 비어있지 않은 값 검증 |
+| Category | 허용 Category와 허용 Key만 허용 |
+| Unknown Key | Category 또는 Metadata의 Unknown Key 차단 |
+| Type·누락 | Type 오류와 Resolved Config Key 누락 차단 |
+| 병합 | Common Default와 Profile Override를 병합해 완전한 Config 생성 |
+| 미존재 Version | DB 연결과 Run 생성 전에 차단 |
+
+Profile Status와 운영 승격 상태는 같은 의미가 아니다.
+`RSCFG-0001`의 `status`는 `BASELINE`이며, 이는 운영 Champion 지정이나 자동 승격을 의미하지 않는다.
+
+### 3.4 Config 선택 CLI와 명시적 주입
+
+`backtest_research_run.py`가 Profile을 선택하고 Resolved Config를 전체 실행 경로에 명시적으로 주입한다.
+
+| CLI Option | 역할 |
+|---|---|
+| `--strategy-config-version` | 실행할 Strategy Profile Version, 기본값 `RSCFG-0001` |
+| `--run-mode` | `BACKTEST` 또는 `CANDIDATE`, 기본값 `BACKTEST` |
+| `--require-artifact-identity` | Source SHA·Image Digest 미주입 시 실행 차단 |
+| `--backtest-start-date` | 백테스트 시작일 |
+| `--backtest-end-date` | 백테스트 종료일, 생략 시 최신 거래일 |
+| `--skip-extended-analysis` | 로컬 단기 검증에서 Extended Analysis 생략 |
+
+주입 계약:
+
+- 선택한 Profile을 Load하고 Resolved Config를 생성한다.
+- Market, Filter, Sizing, Buy Guard, Buy Haircut과 Sell 흐름에 실제 Config를 전달한다.
+- Engine과 Adapter는 Module Global Config나 숨은 Default에 의존하지 않는다.
+- BUY Guard는 이전의 `config={}` 연결 대신 실제 Resolved `buy_guard` Config를 전달한다.
+
+### 3.5 Version Identity
+
+Run마다 아래 Version Identity를 분리해 저장하고, 재현 가능성을 확보한다.
+
+| Identity | 기준 |
+|---|---|
+| Common Package Version | 설치된 `port-strategy-common` Distribution Version |
+| Common Strategy Version | 설치된 Common Wheel이 제공하는 Strategy Version 상수 |
+| Research Engine Version | Research 저장소 상수 (`research_engine_version.py`) |
+| Strategy Config Version | 실행 Profile의 `RSCFG-` Version |
+| Metrics Config Version | Resolved Config Metadata의 `RMETRICS-` Version |
+| Run Identity | Run ID |
+| Source SHA | 배포 Source 환경변수 |
+| Image Digest | 배포 Image 환경변수 |
+
+구분 기준:
+
+- Strategy Config Version과 Research Engine Version은 같은 값이 아니다.
+- Common Package Version과 Common Strategy Version도 서로 다른 값이다.
+- Metrics Config Version은 Strategy Config Identity와 별도로 기록한다.
+- Source SHA와 Image Digest는 서로 다른 식별자다.
+
+### 3.6 Config Snapshot·Hash와 Input Snapshot
+
+Config Identity와 Input Data Identity는 서로 다른 개념이다.
+
+| 항목 | Config Snapshot·Hash | Input Snapshot |
+|---|---|---|
+| 대상 | 실행에 사용한 Resolved Config | 실제 소비한 입력 데이터 |
+| Canonical | Config Canonical JSON | 입력 Canonical JSON |
+| Hash | SHA-256 Config Hash | SHA-256 Input Snapshot Hash |
+| Run 저장 | `config_snapshot`, `config_hash` | `input_snapshot_hash`, `input_snapshot_manifest` |
+| 변동성 | 동일 Profile은 동일 Config Hash | 원천 데이터 갱신 시 Hash 변동 가능 |
+
+Config Snapshot 흐름:
+
+- Common Default와 Profile Override를 병합한 전체 Resolved Config를 생성한다.
+- Canonical JSON과 SHA-256 Config Hash를 생성한다.
+- Run에 Strategy Config Version, Config Snapshot과 Flatten Config KV(`strategy_run_input`)를 저장한다.
+- Trade Log는 Run ID와 Config Identity(Version·Hash)로 같은 Snapshot을 참조한다.
+- Global Common Config Snapshot이 아니라 실제 실행 Config가 Canonical Source다.
+- Secret은 Config Snapshot과 Hash 입력에 포함하지 않는다.
+
+Input Snapshot 흐름:
+
+- 실행 입력 범위와 Manifest를 저장한다.
+- Input Snapshot Hash와 Snapshot Status를 저장한다.
+- 실행 기간과 입력 Data Identity를 연결한다.
+- 동일 기간이라도 원천 데이터가 갱신되면 Input Snapshot Hash가 달라질 수 있다.
+
+### 3.7 Run Mode와 Candidate
+
+Research 실행은 `BACKTEST`와 `CANDIDATE` Run Mode를 구분한다.
+
+| 항목 | 기준 |
+|---|---|
+| 운영 Run | `BACKTEST` Run Mode |
+| Candidate Run | `CANDIDATE` Run Mode |
+| 조회 분리 | Run Mode와 Identity로 운영 Run과 Candidate Run을 구분 |
+| Scheduler 연결 | Candidate 실행을 운영 Scheduler에 자동 연결하지 않음 |
+| 자동 승격 | Candidate는 자동 승격하지 않음 |
+| 실패 저장 | Candidate 실패 Run도 실패 상태와 Artifact Identity 저장 |
+| RDS 공유 | 같은 RDS를 사용할 수 있으나 Run Mode와 Identity로 구분 |
+
+Candidate는 전략 성과의 자동 승인자가 아니라 배포 Artifact와 실행 계약 검증 경로다.
+Strategy 성과 판단은 Research 책임자가 별도 기준으로 수행한다.
+DevOps 승격은 검증된 Artifact의 운영 실행 가능성을 확인하는 절차다.
+
+여기서 Champion–Challenger는 전략 성과 자동 비교 시스템이 아니다.
+현재 구현은 수동 승인 기반 Candidate Artifact 검증과 운영 Revision 승격 구조다.
+
+### 3.8 Artifact Identity
+
+| 항목 | 기준 |
+|---|---|
+| Source SHA | 40자리 hex 형식 검증 |
+| Image Digest | `sha256:` 64자리 hex 형식 검증 |
+| Artifact Identity Status | `UNRESOLVED`, `COMPLETE` 또는 형식 오류 차단 |
+| Digest 고정 | 운영·Candidate 모두 Digest 기반 고정 Image 사용 |
+| 필수 검증 | `--require-artifact-identity`로 완전한 Identity 강제 |
+| 구조 공유 | Candidate와 운영 Run 모두 동일한 Artifact Identity 구조 사용 |
+
+배포 Artifact Identity가 불완전한 상태(`UNRESOLVED`)와 완전한 상태(`COMPLETE`)를 구분한다.
+
+### 3.9 재현성 검증 기준
+
+동일 Version 재실행 시 아래를 구분해 검증한다.
+
+| 대상 | 기준 |
+|---|---|
+| Config와 Artifact Identity | 완전 일치 |
+| Backtest 결과와 Trade Log | 완전 일치 |
+| Input Snapshot Manifest | 일치 |
+| Input Snapshot Hash | 원천 데이터 갱신으로 변동 가능 |
+| 비교 제외 | Run ID와 생성·시작·종료 시각 |
+| 수치 허용 오차 | `0.000000000001` |
+
+Manifest와 결과가 동일하고 Hash 차이가 원천 데이터 갱신으로 설명되는 경우를 예외로 인정한다.
+
+## 4. 전체 실행 흐름
+
+```text
+Strategy Profile + Common Wheel + Preprocessor Feature + Price + Universe
   → Backtest Research
-  → Run · Daily · Daily Position · Trade Log
+  → Run · Daily · Daily Position · Trade Log · Config·Input Snapshot
   → Basic / Extended Analysis
   → Summary / Buy·Sell / Trade Detail / Recommendation Report
   → 선택적 S3 업로드
@@ -79,13 +282,14 @@ Preprocessor Feature + Price + Universe + Config
 | Report | `backtest_report_run.py` |
 | AWS Batch Report | `aws_batch_backtest_report_wrapper.py` |
 
-## 4. Backtest Research
+## 5. Backtest Research
 
-### 4.1 실행 흐름
+### 5.1 실행 흐름
 
 ```text
-Run 생성과 입력 Snapshot
-  → 거래일·Feature·가격·Universe 조회
+Profile Load · Resolve · Hash · Artifact Identity
+  → Run 생성과 Config·Version Identity 저장
+  → 거래일·Feature·가격·Universe 조회와 Input Snapshot 수집
   → Market Decision
   → 기존 Position 처리
   → Buy Candidate Filter
@@ -93,6 +297,7 @@ Run 생성과 입력 Snapshot
   → 신규 Position 생성
   → Daily Result와 Daily Position 저장
   → Trade Log 저장
+  → Input Snapshot 확정
   → Metrics와 Run 상태 확정
 ```
 
@@ -108,26 +313,28 @@ Run 생성과 입력 Snapshot
 | Sell 판단 | `backtest_sell_logic.py` |
 | Position 처리 | `backtest_position_manager.py` |
 | Trade 저장 | `backtest_trade_log.py` |
-| Run·Daily 저장 | `backtest_run_store.py` |
+| Run·Daily·Config 저장 | `backtest_run_store.py` |
+| Input Snapshot | `research_input_snapshot.py` |
 | 성과 계산 | `backtest_metrics.py` |
 
-### 4.2 Engine
+### 5.2 Engine
 
 `backtest_engine.py`는 거래일 단위 메인 루프를 조율한다.
+`run_backtest`는 Resolved Config, Strategy Config Version과 Config Hash를 인자로 받아 전체 경로에 주입한다.
 
 | 항목 | 역할 |
 |---|---|
 | 입력 | 거래일, Market·Stock Feature, 가격과 Universe |
-| Market | Research Market Adapter 호출 |
+| Config 검증 | 필수 Config Category 존재와 Config Hash 형식 확인 |
+| Market | Research Market Adapter에 `market_config` 전달 |
 | Position | 신규 매수보다 기존 Position을 먼저 처리 |
-| Buy | Filter, Guard, Haircut과 Sizing 적용 |
-| 성과 | 일별 수익률과 누적 성과 계산 |
+| Buy | Filter, Guard, Haircut과 Sizing에 실제 Config 전달 |
+| Input Snapshot | 소비한 거래일·Feature·가격·Universe를 Builder에 기록 |
 | 저장 | Daily Result와 Daily Position Snapshot |
-| 거래 | 청산 또는 당일 손절 거래를 Trade Log로 전달 |
 
 가격 기준, 거래일 정렬, 기존 Position 처리 순서와 신규 매수 시점은 백테스트 결과를 바꾸는 핵심 계약이다.
 
-### 4.3 Loader
+### 5.3 Loader
 
 `backtest_loader.py`는 Backtest 입력을 읽는 SQL helper다.
 
@@ -141,9 +348,9 @@ Run 생성과 입력 Snapshot
 거래일, Feature 기준일과 다음 거래일 가격을 구분해야 한다.
 미래 가격이나 미래 Feature가 현재 판단에 포함되면 Look-ahead Bias가 발생한다.
 
-### 4.4 Research Adapter
+### 5.4 Research Adapter
 
-Research 내부 adapter는 `port_strategy_common` 계약을 Backtest 흐름에 연결한다.
+Research 내부 adapter는 `port_strategy_common` 계약을 Backtest 흐름에 연결하며, Resolved Config를 명시적으로 받는다.
 
 | 파일 | Common 호출 |
 |---|---|
@@ -154,26 +361,27 @@ Research 내부 adapter는 `port_strategy_common` 계약을 Backtest 흐름에 �
 Adapter는 자체 DB 접근이나 외부 API 호출을 담당하지 않는다.
 Common 결과를 Research row와 객체 형식으로 변환하는 경계다.
 
-### 4.5 Buy Logic
+### 5.5 Buy Logic
 
 `backtest_buy_logic.py`는 신규 Position 진입을 담당한다.
 
 | 항목 | 처리 |
 |---|---|
 | 후보 | Filter 통과 종목 |
-| Allocation | Research Sizing Adapter |
-| Guard | Common Buy Guard |
-| Haircut | Common Backtest Buy Size Haircut |
+| Allocation | Research Sizing Adapter에 `sizing_config` 전달 |
+| Guard | Common Buy Guard에 `buy_guard_config` 전달 |
+| Haircut | Common Backtest Buy Size Haircut에 `buy_guard_config` 전달 |
 | Metadata | Entry Reason과 사후 분석용 정보 |
 | 당일 Stop | 조건에 따라 Trade Log 생성 가능 |
 
 Available Cash, Exposure, Max Positions, 최소 수량과 반올림 기준은 결과에 직접 영향을 준다.
+BUY Guard와 Haircut은 실제 Resolved `buy_guard` Config를 사용한다.
 
-### 4.6 Sell Logic과 Position Manager
+### 5.6 Sell Logic과 Position Manager
 
 `backtest_sell_logic.py`는 Common Sell 판단을 감싼 wrapper다.
 
-`backtest_position_manager.py`는 기존 Position을 처리한다.
+`backtest_position_manager.py`는 기존 Position을 처리하며 `sell_config`와 `backtest_policy`를 전달받는다.
 
 | 처리 | 의미 |
 |---|---|
@@ -185,19 +393,19 @@ Available Cash, Exposure, Max Positions, 최소 수량과 반올림 기준은 �
 
 Stop, 보유 기간과 Sell Reason 우선순위는 Daily Decision과 공유하는 Common 계약에 영향을 받는다.
 
-### 4.7 Metrics
+### 5.7 Metrics
 
-`backtest_metrics.py`는 DataFrame 기반 성과 계산을 제공한다.
+`backtest_metrics.py`는 DataFrame 기반 성과 계산을 제공하며 Resolved `metrics` Config를 인자로 받는다.
 
 | 지표 | 의미 |
 |---|---|
 | MDD | 최대 낙폭 |
 | Sharpe Ratio | 위험 대비 수익률 |
 
-Risk-free Rate와 연간 거래일 수는 `port_strategy_common.config` 계약을 사용한다.
+Risk-free Rate와 연간 거래일 수는 Profile `metrics` Config에서 전달된다.
 빈 데이터, 0분모와 표본 수 부족 처리는 실제 코드 기준으로 확인해야 한다.
 
-## 5. 입력 데이터
+## 6. 입력 데이터
 
 | 입력 | 역할 |
 |---|---|
@@ -205,7 +413,7 @@ Risk-free Rate와 연간 거래일 수는 `port_strategy_common.config` 계약�
 | Stock Total Feature | 종목 Filter, Sizing과 Sell 판단 |
 | Price Raw | 가격, 수익률과 체결 가정 |
 | Stock Universe | 대상 종목과 활성 조건 |
-| Config Snapshot | 실행 당시 전략 기준 재현 |
+| Strategy Profile | Version별 Resolved Config 재현 |
 | Run Input | 기간, 초기 자산과 실행 옵션 |
 
 입력 데이터에서는 아래를 구분한다.
@@ -220,18 +428,22 @@ Risk-free Rate와 연간 거래일 수는 `port_strategy_common.config` 계약�
 | Duplicate | 동일 Ticker·Date 중복 row |
 | Universe | 활성 종목과 제외 조건 |
 
-## 6. 출력 데이터
+## 7. 출력 데이터
 
-### 6.1 Backtest 저장
+### 7.1 Backtest 저장
 
 | 출력 | 의미 |
 |---|---|
-| `strategy_backtest_run` | Run 메타데이터, 입력과 상태 |
+| `strategy_backtest_run` | Run 메타데이터, Config Snapshot, Version Identity와 상태 |
 | `strategy_backtest_daily` | 거래일별 포트폴리오 성과 |
 | `strategy_backtest_daily_position` | 거래일별 보유 Position Snapshot |
-| `strategy_trade_log` | 완료 거래 상세와 Buy·Sell Metadata |
+| `strategy_trade_log` | 완료 거래 상세, Run ID와 Config Identity 참조 |
+| `strategy_run_input` | Run 입력값과 Flatten Config KV |
 
-### 6.2 Analysis 저장
+`strategy_backtest_run`은 Config Snapshot과 함께 Strategy Config Version, Metrics Config Version,
+Source SHA, Image Digest, Artifact Identity Status, Config Hash, Input Snapshot Hash·Status·Manifest를 저장한다.
+
+### 7.2 Analysis 저장
 
 | 출력 | 의미 |
 |---|---|
@@ -239,7 +451,7 @@ Risk-free Rate와 연간 거래일 수는 `port_strategy_common.config` 계약�
 | Extended Analysis | Threshold, Bucket과 진단 목적 확장 결과 |
 | `strategy_backtest_*_analysis` | Run ID 기준 분석 테이블 계열 |
 
-### 6.3 Report 파일
+### 7.3 Report 파일
 
 | 리포트 | 의미 |
 |---|---|
@@ -251,15 +463,17 @@ Risk-free Rate와 연간 거래일 수는 `port_strategy_common.config` 계약�
 Recommendation은 연구 진단이다.
 실제 투자 권고, 주문 지시 또는 미래 성과 보장으로 해석하지 않는다.
 
-## 7. 저장과 재실행
+## 8. 저장과 재실행
 
 | 주의사항 | 확인 내용 |
 |---|---|
 | Run 생성 | 동일 입력이 신규 Run인지 기존 Run 갱신인지 |
+| Config 저장 | Run당 Config Snapshot 1회, Trade Log는 Identity 참조 |
 | Daily 저장 | 거래일별 Unique Key와 Upsert |
 | Position 저장 | Run·Trade Date·Ticker 기준 |
 | Trade Log | 완료 거래와 Metadata 계약 |
 | 상태 전환 | Started, Completed와 Failed 처리 |
+| Input Snapshot | Manifest·Hash·Status 확정 시점 |
 | Transaction | Run, Daily, Position과 Trade 저장 경계 |
 | Partial Success | 일부 저장 후 Run만 성공 처리되는지 |
 | Re-run | 기존 Analysis·Report와의 연결 |
@@ -268,9 +482,9 @@ Recommendation은 연구 진단이다.
 실제 Unique Key와 Conflict Target은 SQL 또는 DDL을 직접 확인해야 한다.
 문서만으로 추정하지 않는다.
 
-## 8. Analysis
+## 9. Analysis
 
-### 8.1 Basic Analysis
+### 9.1 Basic Analysis
 
 `backtest_analysis_basic.py`는 저장된 Run 결과를 기본 집계 형태로 변환해 저장한다.
 표준 Backtest Run 진입점에서는 이 Basic Analysis 호출이 주석 처리되어 자동 실행되지 않는다.
@@ -280,9 +494,9 @@ Recommendation은 연구 진단이다.
 | 기준 | Run ID |
 | 입력 | Run, Daily, Position과 Trade Log |
 | 출력 | 기본 Analysis Row |
-| 위험 | DB Insert 또는 Upsert 가능 |
+| 위험 | DB Insert 가능 |
 
-### 8.2 Extended Analysis
+### 9.2 Extended Analysis
 
 `analysis_extended.py`는 Run ID 기준 확장 분석을 재생성한다.
 표준 Backtest Run 진입점(`backtest_research_run.py`)이 Extended Analysis를 자동 호출한다.
@@ -298,7 +512,7 @@ Recommendation은 연구 진단이다.
 12개 분석 Table을 Delete한 뒤 재계산하고 마지막에 한 번 commit한다.
 중간 실패 시 Delete와 Insert가 함께 rollback되어 부분 결과만 남지 않는다.
 
-### 8.3 분석 해석
+### 9.3 분석 해석
 
 | 상태 | 구분 |
 |---|---|
@@ -311,9 +525,9 @@ Recommendation은 연구 진단이다.
 
 분석 결과를 실제 운용 성과와 동일하게 표현하지 않는다.
 
-## 9. Report
+## 10. Report
 
-### 9.1 Report 구성
+### 10.1 Report 구성
 
 | 파일 | 역할 |
 |---|---|
@@ -327,7 +541,7 @@ Recommendation은 연구 진단이다.
 
 Report는 저장된 Backtest 결과를 읽어 Text File을 생성하는 표현 계층이다.
 
-### 9.2 Run 선택
+### 10.2 Run 선택
 
 | 방식 | 의미 |
 |---|---|
@@ -337,7 +551,7 @@ Report는 저장된 Backtest 결과를 읽어 Text File을 생성하는 표현 �
 
 최신 Run은 완료 여부와 무관하게 `started_at` 기준으로 선택한다.
 
-### 9.3 출력 파일
+### 10.3 출력 파일
 
 | 항목 | 현재 문서 기준 |
 |---|---|
@@ -349,7 +563,7 @@ Report는 저장된 Backtest 결과를 읽어 Text File을 생성하는 표현 �
 
 Report 생성 성공과 S3 업로드 성공은 별도 상태다.
 
-## 10. Block·Watch·Exception Buy 연구
+## 11. Block·Watch·Exception Buy 연구
 
 | 파일 | 현재 분류 |
 |---|---|
@@ -359,36 +573,26 @@ Report 생성 성공과 S3 업로드 성공은 별도 상태다.
 | `block_exception_buy_backtest_run.py` | Exception Buy Backtest |
 
 이 계열은 Daily 운영 파이프라인의 정식 단계가 아닌 연구·보류 후보로 관리한다.
-
-실행 시 발생 가능한 영향:
-
-| 영향 | 예시 |
-|---|---|
-| DB Read | Candidate와 Feature 조회 |
-| DB Write | Watch 수익률 Update |
-| Simulation | Backtest 유사 계산 |
-| Output | 연구 결과 출력 또는 파일 생성 |
-
 사용 흔적과 운영 연결이 확인되지 않았다는 이유만으로 삭제하지 않는다.
 
-## 11. `port_strategy_common` 관계
+## 12. `port_strategy_common` 관계
 
 Research는 핵심 판단 로직을 Common에서 재사용한다.
 
 | 영역 | Common 계약 |
 |---|---|
-| Config | Strategy, Engine과 판단 설정 |
+| Config | Strategy, Engine과 판단 설정 Default |
 | Market | Market Context와 Decision |
 | Filter | Buy Candidate Filter |
 | Sizing | Position Allocation |
 | Guard | Buy Guard |
 | Haircut | Backtest Buy Size Haircut |
 | Sell | Backtest Sell Decision |
-| Metrics | Risk-free Rate와 Trading Days |
+| Metrics | Risk-free Rate와 Trading Days Default |
 
 Public 함수명, dataclass 필드, enum, config key와 reason 문자열은 다른 서비스와 연결될 수 있다.
 
-### StrategyDecision과의 관계
+### 12.1 StrategyDecision과의 관계
 
 | 항목 | 관계 |
 |---|---|
@@ -399,9 +603,10 @@ Public 함수명, dataclass 필드, enum, config key와 reason 문자열은 다�
 | Daily 운영 판단 | StrategyDecision 책임 |
 | Backtest 판단 | Research 책임 |
 
+Decision은 Research Runtime 의존 대상이 아니라 동일 Common 계약의 별도 소비자다.
 Research 변경만으로 Common 또는 Decision 계약을 임의 변경하지 않는다.
 
-## 12. AWS Paper Daily 위치
+## 13. AWS Paper Daily 위치
 
 Research는 AWS Paper Daily에서 Backtest와 Report 실행 단위로 호출된다.
 
@@ -410,17 +615,17 @@ Research는 AWS Paper Daily에서 Backtest와 Report 실행 단위로 호출된�
 | Step 4 · Backtest Research | Feature를 읽어 Backtest와 분석 결과 생성 |
 | Step 5 · Backtest Report | 저장된 Run 기준 Text Report 생성 |
 
-### 12.1 Step 4
+### 13.1 Step 4
 
 | 항목 | 값 |
 |---|---|
 | 진입점 | `backtest_research_run.py` |
-| 입력 | Feature, Price, Universe, Config와 기간 |
+| 입력 | Feature, Price, Universe, Strategy Profile과 기간 |
 | 출력 | Run, Daily, Position, Trade와 Analysis |
 | DB 영향 | DDL·DML과 Commit 가능 |
 | 직접 하지 않는 일 | Daily Signal, Execution Plan과 Broker 주문 |
 
-### 12.2 Step 5
+### 13.2 Step 5
 
 | 항목 | 값 |
 |---|---|
@@ -433,22 +638,137 @@ Research는 AWS Paper Daily에서 Backtest와 Report 실행 단위로 호출된�
 Scheduler와 Step Functions는 실행 orchestration을 담당한다.
 Research 저장소의 entrypoint 존재는 현재 AWS 실행 상태나 배포 완료 증거가 아니다.
 
-## 13. 컨테이너와 AWS Batch
+## 14. Research CI와 Container Build
 
-### 13.1 Dockerfile
+Research 전용 DevOps는 GitHub Actions와 CodeBuild 책임을 분리한다.
 
-| 항목 | 현재 문서 기준 |
+```text
+GitHub Actions (OIDC 인증, CodeBuild 시작·상태 확인)
+  → CodeBuild (Compile, Test, Config·Version Contract, Docker Build, Smoke, 조건부 Publish)
+  → ECR (Git SHA Tag Image, Digest 조회)
+  → Candidate Job Definition 수동 실행
+  → Manual Promotion (운영 State Machine Step 4 Revision 승격)
+```
+
+### 14.1 책임 분리
+
+| 주체 | 책임 |
+|---|---|
+| GitHub Actions | OIDC 인증과 CodeBuild 실행·상태 확인 |
+| CodeBuild | Compile, Test, Config·Version Contract, Container Build, Smoke와 조건부 Publish |
+| CodeBuild Role | Build, Logs와 Research ECR 범위 |
+| GitHub OIDC Role | Research CodeBuild 시작·조회 범위 |
+
+Batch, Step Functions와 DB 권한은 Build Role에 포함하지 않는다.
+
+### 14.2 CodeBuild 단계
+
+| 단계 | 내용 |
+|---|---|
+| Source Identity | Git SHA 확인과 Git SHA 기반 Image Tag |
+| Common Wheel | Wheel SHA-256 확인과 설치 Version 검증 |
+| Python Compile | 전체 Python 파일 Compile |
+| Internal Contract | Config·Version 계약 등 Verify 모듈 실행 |
+| Candidate Contract | 정적 Candidate 계약 검증 |
+| Docker Build | Git SHA Tag Image Build |
+| Container Smoke | Network 차단 Import·CLI·Profile 검증 |
+| Optional Publish | `PUSH_IMAGE=true`일 때만 ECR Push와 Digest 조회 |
+
+Build-only와 Image Publish를 분리하고, 실패 시 ECR Push를 차단한다.
+Mutable `latest` Tag 의존을 제거하고 Git SHA Tag와 Digest를 증적으로 사용한다.
+Cross-repository Contract는 Decision Source가 Research CodeBuild Context에 없으므로 실행하지 않는다.
+
+### 14.3 GitHub Actions
+
+| 항목 | 기준 |
+|---|---|
+| 인증 | GitHub OIDC, 장기 Access Key 미사용 |
+| Trigger | `main` Push와 `workflow_dispatch` |
+| Publish Gate | `push_image` 입력, `main` Push는 Publish 금지 |
+| 전달 | Git SHA를 CodeBuild Source Version으로 전달 |
+| 결과 | 실패한 CodeBuild를 성공으로 처리하지 않음 |
+
+## 15. Candidate와 운영 Job Definition
+
+Candidate 전용 Job Definition은 운영 Family와 분리한다.
+
+| 항목 | 기준 |
+|---|---|
+| 운영 Family | 운영 Backtest Job Definition Family |
+| Candidate Family | 운영과 분리된 `-candidate` Family |
+| Candidate Image | Digest 기반 고정 Image |
+| Candidate 주입 | Source SHA·Image Digest 환경변수 |
+| Candidate 실행 | `--run-mode CANDIDATE`, `--strategy-config-version RSCFG-0001`, `--require-artifact-identity` |
+| 실행 방식 | 수동 실행, 자동 승격 미구성 |
+
+Candidate 검증에서는 Job Status와 Container Exit Code, Run·Config Hash·Metrics·Input Snapshot 저장과
+의도적 실패 Candidate의 실패 저장 계약을 확인한다.
+운영 Step Functions와 Scheduler는 Candidate 실행으로 변경하지 않는다.
+
+## 16. 운영 AS-IS
+
+아래는 운영자가 AWS에서 수행한 승격·검증 결과를 문서화한 운영 사실이다.
+Research 저장소 코드만으로 확정되는 값이 아니다.
+
+| 항목 | 값 |
+|---|---|
+| 운영 Champion | Research Job Definition Revision 7 |
+| 운영 Step 4 | Revision 7 |
+| Step 4 단독 검증 경로 | Revision 7 |
+| 운영 Resource | VCPU 1, Memory 4096MiB |
+| Attempt Timeout | 600초 (이번 성공 실행에서 미초과) |
+| 이전 Rollback Revision | Revision 5 (ACTIVE 유지) |
+| Revision 6 | OOM 실패 Revision, 증적으로 보존 |
+| 운영 Image | Digest 고정 |
+| 운영 Run Mode | `BACKTEST` |
+| 운영 Strategy Config Version | `RSCFG-0001` |
+| Artifact Identity | 필수 검증 적용 |
+| Candidate 자동 승격 | 없음 |
+
+승격·Rollback 요약:
+
+- 기존 운영 Champion Revision 5에서 검증된 Candidate Artifact로 운영 Revision 6을 등록했다.
+- 운영 State Machine Step 4 참조를 Revision 5에서 6으로 승격했다.
+- Revision 6은 부하 검증에서 Container Exit Code 137 Fargate OutOfMemoryError로 실패했다.
+- 이는 전략 로직·Config 오류가 아니라 Runtime Memory 부족이다.
+- 실패 직후 운영과 Step 4 전용 State Machine을 Revision 5로 Rollback했다.
+- Revision 6의 Image·Command·Config·Role·Secret·Environment를 유지하고 Memory만 4096MiB로 확장해 Revision 7을 등록했다.
+- Revision 7을 Step 4 전용 State Machine에서 단독 검증(Step Functions·AWS Batch 성공, Exit Code 0)한 뒤 운영 Step 4를 Revision 7로 최종 승격했다.
+
+Rollback은 Candidate Family 내부 Revision 전환이 아니라 실제 운영 State Machine의 Champion Pointer 변경이다.
+Strategy 성과 평가와 DevOps Artifact 승격 책임은 분리한다.
+
+## 17. 컨테이너와 주요 DevOps 파일
+
+### 17.1 Dockerfile
+
+| 항목 | 현재 소스 기준 |
 |---|---|
 | Base Image | `python:3.13-slim` |
-| 포함 대상 | `port_strategy_common`, `port_strategy_research` |
 | Dependency | `requirements.txt` |
+| Common | `.devops/packages/port_strategy_common-1.0.0-py3-none-any.whl`를 `--no-deps` 설치 |
+| Version 검증 | 설치 후 `1.0.0` Assert |
+| 포함 대상 | 루트 `*.py`와 `strategy_profiles/` |
 | 기본 CMD | `backtest_research_run.py` Compile 확인 |
 | 실제 Research 실행 | 외부 Command Override |
-| 배포 책임 | 별도 배포 파이프라인 |
 
 기본 CMD는 실제 Backtest 실행이 아니라 Compile 확인이다.
+Common Source Directory를 직접 Copy하지 않고 Wheel Package를 설치한다.
 
-### 13.2 AWS Batch Report Wrapper
+### 17.2 주요 신규 DevOps 파일
+
+| 파일 | 역할 |
+|---|---|
+| `Dockerfile` | Common Wheel 설치와 Compile 기본 CMD |
+| `.dockerignore` | 문서·DevOps Script·비런타임 파일 Build Context 제외 |
+| `.devops/codebuild/buildspec.yml` | Build-only CI와 조건부 ECR Publish |
+| `.devops/scripts/verify-candidate-contract.py` | Candidate 정적 계약 검증 |
+| `.devops/scripts/container-smoke.py` | Network 차단 Container Smoke Test |
+| `.github/workflows/research-codebuild.yml` | OIDC 인증과 CodeBuild 실행·대기 |
+| `strategy_profiles/README.md` | Strategy Profile 관리 기준 |
+| `strategy_profiles/RSCFG-0001.json` | Baseline Strategy Profile |
+
+### 17.3 AWS Batch Report Wrapper
 
 `aws_batch_backtest_report_wrapper.py`는 AWS Batch용 Report Wrapper다.
 
@@ -464,7 +784,7 @@ Research 저장소의 entrypoint 존재는 현재 AWS 실행 상태나 배포 �
 
 Secret 값, 실제 Bucket, Prefix, Job ID와 ARN은 문서에 기록하지 않는다.
 
-## 14. 실행 방법
+## 18. 실행 방법
 
 내부 import는 `port_strategy_research` package 경로를 기준으로 한다.
 실행이 필요한 경우 파일 경로 직접 실행보다 `python -m` 형식을 사용한다.
@@ -473,7 +793,7 @@ Secret 값, 실제 Bucket, Prefix, Job ID와 ARN은 문서에 기록하지 않�
 실제 DB 쓰기, 파일 생성과 S3 업로드가 발생할 수 있으므로 문서 작업 중에는 실행하지 않는다.
 
 ```powershell
-python -m port_strategy_research.backtest_research_run
+python -m port_strategy_research.backtest_research_run --strategy-config-version RSCFG-0001
 
 python -m port_strategy_research.run_extended_analysis
 
@@ -492,11 +812,11 @@ python -m port_strategy_research.aws_batch_backtest_report_wrapper
 | AWS Batch Wrapper | Secret 매핑, Report 생성과 S3 업로드 가능 |
 | Block·Watch Entrypoint | DB Update 또는 Simulation 가능 |
 
-## 15. DB 설정
+## 19. DB 설정
 
 DB 연결은 `db_config.py`의 `get_db_config()`를 사용한다.
 
-### 15.1 환경변수
+### 19.1 환경변수
 
 | 환경변수 | 현재 문서 기준 |
 |---|---|
@@ -515,8 +835,9 @@ $env:INTEREST_DB_PASSWORD="[REDACTED]"
 ```
 
 예시 값은 로컬 문서 기준이며 실제 운영 접속정보가 아니다.
+Artifact Identity 환경변수 `RESEARCH_SOURCE_SHA`, `RESEARCH_IMAGE_DIGEST`는 배포 Runtime에서 주입한다.
 
-### 15.2 Search Path
+### 19.2 Search Path
 
 현재 문서 기준 Search Path는 다음 순서다.
 
@@ -534,7 +855,7 @@ research, preprocessor, interest, reference, legacy, public
 
 Search Path 순서 변경은 Unqualified SQL이 참조하는 Table을 바꿀 수 있다.
 
-## 16. 외부 의존성
+## 20. 외부 의존성
 
 | 의존성 | 용도 |
 |---|---|
@@ -545,12 +866,12 @@ Search Path 순서 변경은 Unqualified SQL이 참조하는 Table을 바꿀 수
 | `psycopg2` | PostgreSQL 연결 |
 | `psycopg2-binary` | 설치 Package |
 | `boto3` | AWS Batch Wrapper의 S3 업로드 |
-| `port_strategy_common` | 공통 판단과 설정 |
+| `port_strategy_common` | Wheel `1.0.0` 고정 설치, 공통 판단과 설정 |
 
 Pinned Version은 `requirements.txt`에서 관리한다.
 README에 버전 값을 중복 기록하지 않는다.
 
-## 17. 상태와 계산 주의사항
+## 21. 상태와 계산 주의사항
 
 | 주의사항 | 확인 내용 |
 |---|---|
@@ -561,21 +882,22 @@ README에 버전 값을 중복 기록하지 않는다.
 | Cash | Available Cash와 Position Allocation |
 | Cost | Fee, Tax와 Slippage 구현 여부 |
 | Stop | 당일 Stop과 일반 Sell 우선순위 |
+| Config Inject | Module Global이 아닌 Resolved Config 사용 |
 | Run Status | Partial Save 후 Completed 처리 여부 |
 | Analysis | Delete 후 Insert 실패 가능성 |
 | Report | 최신 Run 선택과 파일 덮어쓰기 |
 | S3 | 일부 업로드 실패와 전체 성공 구분 |
-| Reproducibility | Config·Input Snapshot 보존 |
+| Reproducibility | Config·Input Snapshot과 Artifact Identity 보존 |
 
 현재 구현이 모든 실패와 수치 경계를 자동 처리한다고 README만으로 단정하지 않는다.
 코드 변경이나 장애 분석에서는 EntryPoint, Store와 Transaction을 직접 확인해야 한다.
 
-## 18. 문서 구조
+## 22. 문서 구조
 
 | 문서 | 역할 |
 |---|---|
 | `AGENTS.md` | Kiro 작업 범위, 안전, 데이터 계약과 검증 규칙 |
-| `README.md` | 현재 Research 구조, 실행·설정과 운영 위치 |
+| `README.md` | 현재 Research 구조, 실행·설정과 운영 AS-IS |
 | `CHANGELOG.md` | 주요 변경 이력과 당시 사실 |
 | `docs/source-file-catalog.md` | 파일 책임, 입출력과 변경 영향 |
 
@@ -585,7 +907,7 @@ README와 `docs/source-file-catalog.md`를 함께 확인한다.
 날짜별 `docs/worklog/*.md`는 새로 만들지 않는다.
 과거 생성 사실은 CHANGELOG의 당시 이력으로만 보존한다.
 
-## 19. 안전한 검증 범위
+## 23. 안전한 검증 범위
 
 문서만 수정한 경우에는 변경 파일과 Diff 범위만 확인한다.
 
@@ -599,6 +921,8 @@ git diff --check
 
 | 검증 | 안전한 방식 |
 |---|---|
+| Profile·Schema | Resolved Config 병합과 Unknown Key 단위 검증 |
+| Config Snapshot | Canonical JSON과 Hash 단위 검증 |
 | Adapter | 단위 입력·출력 비교 |
 | Metrics | 작은 DataFrame Fixture |
 | Loader | DB Mock |

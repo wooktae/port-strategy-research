@@ -7,6 +7,85 @@
 - 민감정보와 일회성 운영값은 기록하지 않는다.
 - 날짜별 worklog는 새로 만들지 않고 주요 변경은 이 문서에 남긴다.
 
+## 2026-08-06
+
+### 2026-08-05~2026-08-06 Research Versioned Backtest Platform과 DevOps 적용
+
+Research를 고정 Config 실행기에서 Versioned Backtest Platform으로 전환하고,
+Research 전용 CI·Container·Candidate·운영 승격 구조를 적용한 변경 묶음이다.
+
+#### 기능
+
+| 항목 | 변경 내용 |
+|---|---|
+| Common Wheel Pin | Common Source Copy를 제거하고 `port_strategy_common` Wheel `1.0.0` 고정 설치로 전환 |
+| Config CLI | `--strategy-config-version`(기본 `RSCFG-0001`)과 `--run-mode` 등 실행 옵션 추가 |
+| 명시적 Config 주입 | Engine·Adapter·Buy·Sell·Position에 Resolved Config 명시적 전달 |
+| BUY Guard 수정 | BUY Guard의 `config={}` 연결을 실제 Resolved `buy_guard` Config 전달로 수정 |
+| Config Snapshot·Hash | Resolved Config Canonical JSON과 SHA-256 Config Hash 생성 |
+
+#### 구조
+
+| 항목 | 변경 내용 |
+|---|---|
+| Strategy Profile | `strategy_profiles/`와 `RSCFG-0001` Baseline Profile 도입 |
+| Schema 검증 | 필수 Category·Metadata, 허용 Key와 Unknown Key 차단 검증 추가 |
+| Version Identity 분리 | Common Package·Common Strategy·Research Engine·Strategy Config·Metrics Config Version 분리 |
+| Run·Trade Config Persistence | Run에 Config Snapshot 1회 저장, Trade Log는 Run ID·Config Identity 참조 |
+| Artifact Identity | Source SHA·Image Digest·Status 저장과 형식 검증 추가 |
+| Input Snapshot | 입력 Manifest·Hash·Status 저장 구조 추가 |
+| Run Mode 분리 | `BACKTEST`와 `CANDIDATE` Run Mode 구분 |
+
+#### DevOps
+
+| 항목 | 변경 내용 |
+|---|---|
+| GitHub Actions·OIDC | OIDC 인증으로 Research CodeBuild 시작·상태 확인 Workflow 추가 |
+| CodeBuild | Compile, Contract Test, Config·Version 검증, Docker Build와 Smoke 실행 |
+| Build-only와 Publish | Build-only 기본과 조건부 ECR Publish 분리, 실패 시 Push 차단 |
+| Image Identity | Git SHA 기반 Image Tag와 Digest 증적, Mutable `latest` 의존 제거 |
+| Candidate Job Definition | 운영 Family와 분리한 `-candidate` Family 정적 계약 검증 |
+| OIDC Trust 수정 | 최초 Workflow의 `AssumeRoleWithWebIdentity` 실패 원인을 실제 Subject 불일치로 확인 후 수정 |
+
+#### 검증
+
+| 항목 | 결과 |
+|---|---|
+| OIDC 최초 실패 | 최초 Workflow는 OIDC 단계에서 실패, CodeBuild 미시작, ECR Push 미발생 |
+| OIDC 해결 | 실제 Token Subject 기준으로 Trust Policy를 Repository와 `main` Branch로 제한 후 Build-only 성공, 이후 Image Publish Workflow 성공 |
+| Candidate 실행 | `--run-mode CANDIDATE`·`RSCFG-0001`·`--require-artifact-identity`로 수동 실행, Job Status·Exit Code·CloudWatch Log와 Run·Config Hash·Metrics·Input Snapshot 저장 확인 |
+| Candidate 실패 계약 | 의도적 실패 Candidate 실행에서 실패 상태와 Artifact Identity 저장 확인 |
+| Candidate 격리 | 운영 Step Functions·Scheduler 미변경과 자동 승격 미구성 확인 |
+| 재현성 – 일치 | 동일 Candidate Revision·Digest·Source SHA·`RSCFG-0001`에서 Config Hash, Config Snapshot·KV, Daily Result·Position, Trade Log, Run Input과 Total Return·MDD·Sharpe·Trade Count 완전 일치 (허용 오차 `0.000000000001`) |
+| 재현성 – 제외 | Run ID와 생성·시작·종료 시각은 비교 대상에서 제외 |
+| 재현성 – Input Snapshot | Manifest는 일치하나 원천 데이터 갱신으로 Input Snapshot Hash는 변동 가능, 완전 동일 Hash로 기록하지 않음 |
+| 운영 승격 | Champion Revision 5에서 검증된 Candidate Artifact로 Revision 6 등록 후 운영 State Machine Step 4 참조를 5→6으로 승격, Step 4 이외 정의·Role·Type 미변경 |
+| Rollback | 운영 State Machine Step 4 참조를 6→5로 복원(Champion Pointer 변경), Revision 5 ACTIVE 유지 확인 |
+| Revision 6 OOM | VCPU 1·Memory 2048MiB Step 4 단독 실행에서 Exit Code 137 Fargate OutOfMemoryError, 로직·Config 오류가 아닌 Memory 부족으로 확인 후 Revision 5로 Rollback |
+| Revision 7 해결 | Revision 6 Image·Command·Config·Role·Secret·Environment 유지, Memory만 4096MiB로 확장, VCPU 1 유지 |
+| Revision 7 승격 | Step 4 전용 State Machine 단독 검증(Step Functions·AWS Batch 성공, Exit Code 0) 후 운영 Step 4를 Revision 7로 최종 승격 |
+| Revision 5 Rollback 유지 | Revision 5를 Rollback 대상 ACTIVE Revision으로 유지, Revision 6은 실패 증적으로 보존 |
+
+#### 운영 AS-IS
+
+| 항목 | 값 |
+|---|---|
+| 운영 Champion | Revision 7 |
+| 운영 Step 4 | Revision 7 |
+| 운영 Resource | VCPU 1, Memory 4096MiB, Attempt Timeout 600초 |
+| 이전 Rollback Revision | Revision 5 |
+| 운영 Run Mode | `BACKTEST` |
+| 운영 Strategy Config Version | `RSCFG-0001` |
+
+#### 작업 범위
+
+| 항목 | 값 |
+|---|---|
+| 이번 문서 변경 범위 | `AGENTS.md`, `README.md`, `CHANGELOG.md`, `docs/source-file-catalog.md` |
+| 코드·설정 변경 | 이번 문서 작업에서는 없음 |
+| Backtest·DB·AWS·S3 실행 | 이번 문서 작업에서는 없음 |
+| 일회성 식별자 | 전체 SHA, Digest, ARN과 Job ID는 기록하지 않음 |
+
 ## 2026-07-22
 
 ### Research 문서 기준 재정비

@@ -44,8 +44,14 @@
 
 이 저장소는 전처리 feature와 가격·universe 데이터를 읽어 백테스트, 분석과 리포트를 생성하는 Research 계층이다.
 
+현재 Research는 고정된 Common 판단 Engine에 Version별 Strategy Profile을 선택·주입하는
+`Versioned Backtest Platform`이다. Common은 판단 함수와 기본 계약을 제공하고,
+Research는 Version별 Strategy Profile을 선택해 전체 Backtest Run에 명시적으로 주입한다.
+Research 실행 Artifact 배포와 Strategy 운영 성과 승격은 서로 다른 절차다.
+
 | 영역 | Research 책임 |
 |---|---|
+| Strategy Profile | Version별 Config 선택과 Resolved Config 명시적 주입 |
 | Backtest | 거래일 단위 포트폴리오 시뮬레이션 |
 | Market | Common market 판단을 Research adapter로 호출 |
 | Buy Filter | Common buy candidate filter를 Research adapter로 호출 |
@@ -139,9 +145,81 @@ Research는 내부 adapter를 통해 `port_strategy_common`을 직접 호출한�
 
 - `port_strategy_decision`은 Research의 런타임 import 대상이 아니다.
 - Research와 StrategyDecision은 동일한 `port_strategy_common` 계약을 공유하는 별도 소비자다.
+- Decision은 Research Runtime 의존 대상이 아니라 동일 Common 계약의 별도 소비자다.
 - Research adapter를 Decision adapter와 동일 파일 또는 동일 runtime 의존으로 합치지 않는다.
 - Common 함수명, import path, dataclass 필드, enum, config key와 reason 문자열을 명시 요청 없이 변경하지 않는다.
 - Common mapping 변경은 Research 결과와 Daily Decision 호환성에 영향을 줄 수 있으므로 기능 변경으로 취급한다.
+
+### 4.1 Common Wheel Version Pin과 Runtime Version 검증
+
+- Research Image는 Common Source Directory를 직접 Copy하지 않고 `port_strategy_common` Wheel `1.0.0`을 고정 설치한다.
+- 실제 설치된 Distribution Version을 Runtime Version Source로 사용한다.
+- Profile 선언 Common Package Version과 실제 설치 Version이 다르면 실행을 차단한다.
+- Common Strategy Version도 Runtime 값과 Profile 선언 값이 일치해야 한다.
+- Common Package와 Research Source의 책임을 혼동하지 않는다.
+
+## 4A. Versioned Backtest Platform 계약
+
+### 4A.1 Strategy Profile Schema
+
+- Strategy Profile은 `strategy_profiles/`에서 관리하고 `strategy_config_version`이 Profile Identity다.
+- Profile 파일명과 선언 Version이 일치해야 한다.
+- 필수 Category, 필수 Metadata Key와 허용 Config Key만 허용한다.
+- Category·Metadata의 Unknown Key, Type 오류와 누락 Key를 차단한다.
+- Common Default와 Profile Override를 병합해 완전한 Resolved Config를 생성한다.
+- 존재하지 않는 Version은 DB 연결과 Run 생성 전에 차단한다.
+- Profile Status와 운영 승격 상태는 같은 의미가 아니다.
+
+### 4A.2 Resolved Config 명시적 주입
+
+- 선택한 Profile을 Load해 Resolved Config를 생성하고 전체 실행 경로에 명시적으로 주입한다.
+- Market, Filter, Sizing, Buy Guard, Buy Haircut과 Sell 흐름에 실제 Config를 전달한다.
+- Engine과 Adapter는 Module Global Config나 숨은 Default에 의존하지 않는다.
+- BUY Guard는 실제 Resolved `buy_guard` Config를 사용한다. `config={}` 같은 빈 연결을 만들지 않는다.
+- CLI 문법은 실제 Source에 있는 형태(`--strategy-config-version` 등)만 사용한다.
+
+### 4A.3 Config Snapshot·Hash Canonical Source
+
+- Common Default와 Profile Override를 병합한 전체 Resolved Config로 Canonical JSON과 SHA-256 Config Hash를 만든다.
+- Run에 Strategy Config Version, Config Snapshot과 Flatten Config KV를 저장한다.
+- Trade Log는 Run ID와 Config Identity로 같은 Snapshot을 참조한다.
+- Global Common Config Snapshot이 아니라 실제 실행 Config가 Canonical Source다.
+- Secret은 Config Snapshot과 Hash 입력에 포함하지 않는다.
+
+### 4A.4 Version Identity 분리
+
+- Common Package Version, Common Strategy Version, Research Engine Version, Strategy Config Version,
+  Metrics Config Version, Run Identity, Source SHA와 Image Digest를 분리해 관리한다.
+- Strategy Config Version과 Research Engine Version은 같은 값이 아니다.
+- Common Package Version과 Common Strategy Version도 서로 다른 값이다.
+- Metrics Config Version은 Strategy Config Identity와 별도로 기록한다.
+- Run마다 위 Identity를 저장해 재현 가능성을 확보한다.
+- 실제 상수명과 저장 필드는 Source와 SQL에서 확인되는 것만 사용한다.
+
+### 4A.5 Run Mode 분리
+
+- `BACKTEST`와 `CANDIDATE` Run Mode를 구분한다.
+- 운영 Run과 Candidate Run 조회 기준을 Run Mode와 Identity로 분리한다.
+- Candidate 실행을 운영 Scheduler에 자동 연결하지 않는다.
+- Candidate는 자동 승격하지 않는다.
+- Candidate 실패 Run도 실패 상태와 Artifact Identity를 저장한다.
+- Candidate는 배포 Artifact와 실행 계약 검증 경로이며 전략 성과 자동 승인자가 아니다.
+- Strategy 성과 판단과 DevOps Artifact 승격을 혼동하지 않는다.
+
+### 4A.6 Artifact Identity와 Input Snapshot 분리
+
+- Artifact Identity는 Source SHA, Image Digest와 Artifact Identity Status로 구성한다.
+- Candidate·운영 Run 모두 동일한 Artifact Identity 구조와 Digest 고정 Image를 사용한다.
+- Input Snapshot은 실행 입력 범위, Manifest, Input Snapshot Hash와 Snapshot Status로 구성한다.
+- Config Identity와 Input Data Identity를 같은 것으로 설명하지 않는다.
+- 동일 기간이라도 원천 데이터가 갱신되면 Input Snapshot Hash가 달라질 수 있다.
+
+### 4A.7 재현성 비교 대상과 제외 대상
+
+- 재현성 비교에서 Config와 Artifact Identity, Backtest 결과와 Trade Log는 완전 일치를 확인한다.
+- Input Snapshot Manifest는 일치, Input Snapshot Hash는 원천 데이터 갱신으로 변동 가능으로 구분한다.
+- Run ID와 생성·시작·종료 시각은 비교 대상에서 제외한다.
+- "완전히 동일한 Input Snapshot Hash를 검증했다"고 잘못 기록하지 않는다.
 
 ## 5. 입력 데이터 계약
 
@@ -255,6 +333,45 @@ Research는 내부 adapter를 통해 `port_strategy_common`을 직접 호출한�
 - repository의 wrapper는 실제 AWS Batch 배포 완료 증거가 아니다.
 - AWS CLI, SDK, Batch, ECS, Step Functions와 S3 작업은 명시 승인 없이 실행하지 않는다.
 
+## 10A. Research CI·Candidate·운영 승격 규칙
+
+### 10A.1 Build Role과 Runtime Role 권한 분리
+
+- GitHub Actions는 OIDC 인증과 CodeBuild 실행·상태 확인만 담당한다.
+- CodeBuild는 Compile, Test, Config·Version Contract, Container Build, Smoke와 조건부 Publish를 담당한다.
+- CodeBuild Role은 Build, Logs와 Research ECR 범위로 제한한다.
+- GitHub OIDC Role은 Research CodeBuild 시작·조회 범위로 제한한다.
+- Batch, Step Functions와 DB 권한은 Build Role에 포함하지 않는다.
+
+### 10A.2 OIDC Trust와 Image 계약
+
+- OIDC Trust는 추정하지 않고 실제 Token Subject 계약과 Branch 제한을 확인한다.
+- Trust 범위는 Repository와 `main` Branch로 제한한다.
+- Build-only와 Image Publish를 분리하고, 실패 시 ECR Push를 차단한다.
+- Git SHA 기반 Image Tag와 Digest를 증적으로 사용하고 Mutable `latest` 의존을 만들지 않는다.
+- 운영·Candidate 모두 Digest 고정 Image를 사용한다.
+
+### 10A.3 Candidate와 운영 경로 분리
+
+- Candidate Job Definition Family와 운영 Job Definition Family를 분리한다.
+- Candidate Revision은 Digest Image와 Source SHA·Image Digest 환경변수를 사용한다.
+- Candidate는 `--run-mode CANDIDATE`와 `--require-artifact-identity`로 수동 실행한다.
+- Candidate 검증은 Job Status, Container Exit Code와 저장 계약 확인까지 포함한다.
+- Candidate 실행으로 운영 Step Functions와 Scheduler를 변경하지 않는다.
+- Candidate 자동 승격을 구성하지 않는다.
+
+### 10A.4 운영 승격·Rollback과 Resource 검증
+
+- 운영 승격은 Revision 등록과 운영 State Machine Champion Pointer 변경을 구분한다.
+- 장기간 Backtest는 Candidate 성공만으로 운영 Resource가 충분하다고 판단하지 않는다.
+- 실제 운영 기간과 입력 규모로 Step 4 단독 검증을 수행한다.
+- Exit Code 137과 OOM을 애플리케이션 로직 실패와 구분한다.
+- Timeout과 Memory 실패를 별도로 식별한다.
+- AWS Resource 변경은 새 Job Definition Revision으로 등록한다.
+- Resource 변경 후 운영 Pointer 승격 전에 단독 실행한다.
+- 실패 시 이전 ACTIVE Champion Revision으로 즉시 Rollback한다.
+- 전체 ARN, Account ID, Job ID와 Digest 원문을 문서에 기록하지 않고 Family·Revision·상태만 사용한다.
+
 ## 11. Database 규칙
 
 - DB 설정은 `db_config.py`의 실제 구현을 기준으로 확인한다.
@@ -337,7 +454,8 @@ Research는 내부 adapter를 통해 `port_strategy_common`을 직접 호출한�
 - `Dockerfile`의 base image, copy 경로, work directory와 CMD를 실제 파일 기준으로 확인한다.
 - 기본 CMD가 compile 확인인지 실제 Research 실행인지 구분한다.
 - 실제 Backtest·Report command override는 외부 Batch 또는 ECS 설정과 분리한다.
-- `port_strategy_common` vendoring과 정식 package dependency를 혼동하지 않는다.
+- `port_strategy_common`은 Source vendoring이 아니라 Wheel `1.0.0` 고정 설치 구조임을 유지한다.
+- Common Source Directory Copy와 Wheel Package 설치를 혼동하지 않는다.
 - requirements의 pinned 버전은 파일 자체에서 관리한다.
 - 코드 import와 requirements가 일치하는지 확인하되 문서 작업에서 임의 수정하지 않는다.
 - Dockerfile 존재는 이미지 build, push와 배포 완료 증거가 아니다.
@@ -408,13 +526,20 @@ Research는 내부 adapter를 통해 `port_strategy_common`을 직접 호출한�
 |---|---|
 | 서비스명 | `port_strategy_research` |
 | 계층명 | Research |
+| 플랫폼 성격 | Versioned Backtest Platform |
 | Upstream | Preprocessor |
 | 운영 판단 | StrategyDecision |
 | 후속 실행 | StrategyExecution |
 | 핵심 실행 | Backtest Research |
+| 전략 설정 | Strategy Profile과 Strategy Config Version |
+| 실행 Config | Resolved Config, Config Snapshot과 Config Hash |
+| Version | Common Package·Common Strategy·Research Engine·Metrics Config Version |
+| 실행 구분 | Run Mode (`BACKTEST`, `CANDIDATE`) |
+| 재현성 | Artifact Identity와 Input Snapshot |
+| 승격 | Candidate, Operating Champion, Manual Promotion과 Rollback Revision |
 | 분석 | Basic Analysis와 Extended Analysis |
 | 리포트 | Summary, Buy·Sell, Trade Detail과 Recommendation |
-| 공통 계약 | `port_strategy_common` |
+| 공통 계약 | `port_strategy_common` Wheel `1.0.0` |
 | Adapter | Research 내부 adapter |
 | 저장 단위 | Run ID |
 | 일자 기준 | Trade Date |
