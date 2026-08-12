@@ -70,21 +70,25 @@ jobs:
 
           PUSH_IMAGE="false"
 
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            PUSH_IMAGE="true"
+          elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
             if [[ "${DISPATCH_PUSH_IMAGE}" == "true" ]]; then
               PUSH_IMAGE="true"
             fi
-          fi
-
-          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${PUSH_IMAGE}" != "false" ]]; then
-            echo "MAIN_PUSH_MUST_NOT_PUBLISH"
-            exit 20
           fi
 
           echo "push_image=${PUSH_IMAGE}" >> "${GITHUB_OUTPUT}"
 
           echo "GITHUB_EVENT_NAME=${GITHUB_EVENT_NAME}"
           echo "PUSH_IMAGE=${PUSH_IMAGE}"
+
+          if [[ "${PUSH_IMAGE}" == "true" ]]; then
+            echo "ARTIFACT_PUBLISH=ENABLED"
+          else
+            echo "ARTIFACT_PUBLISH=DISABLED"
+          fi
+
           echo "RELEASE_STAGE=BUILD_ONLY"
           echo "DEPLOYMENT_EXECUTED=NO"
           echo "PUBLISH_GATE_RESOLUTION=SUCCESS"
