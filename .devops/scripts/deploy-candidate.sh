@@ -2,6 +2,7 @@
 
 set -euo pipefail
 
+
 SOURCE_SHA="${1:?SOURCE_SHA is required}"
 AWS_REGION="${2:?AWS_REGION is required}"
 ECR_REPOSITORY_NAME="${3:?ECR_REPOSITORY_NAME is required}"
@@ -9,12 +10,16 @@ CANDIDATE_JOB_DEFINITION_NAME="${4:?CANDIDATE_JOB_DEFINITION_NAME is required}"
 CANDIDATE_JOB_QUEUE="${5:?CANDIDATE_JOB_QUEUE is required}"
 GITHUB_RUN_ID_VALUE="${6:?GITHUB_RUN_ID is required}"
 
+CANDIDATE_MEMORY="4096"
+
+
 if [[ ! "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
   echo "SOURCE_SHA_INVALID=${SOURCE_SHA}"
   exit 60
 fi
 
 SHORT_SHA="${SOURCE_SHA:0:12}"
+
 
 echo "=== RESOLVE VERIFIED ECR ARTIFACT ==="
 
@@ -100,6 +105,22 @@ BASELINE_TYPE="$(
     /tmp/research-candidate-baseline.json
 )"
 
+BASELINE_MEMORY="$(
+  jq -r '
+    .containerProperties.resourceRequirements[]
+    | select(.type == "MEMORY")
+    | .value
+  ' /tmp/research-candidate-baseline.json
+)"
+
+BASELINE_VCPU="$(
+  jq -r '
+    .containerProperties.resourceRequirements[]
+    | select(.type == "VCPU")
+    | .value
+  ' /tmp/research-candidate-baseline.json
+)"
+
 if [[ "${BASELINE_NAME}" != "${CANDIDATE_JOB_DEFINITION_NAME}" ]]; then
   echo "CANDIDATE_BASELINE_NAME_MISMATCH=${BASELINE_NAME}"
   exit 71
@@ -151,6 +172,9 @@ if ! jq -e '
 fi
 
 echo "CANDIDATE_BASELINE_REVISION=${BASELINE_REVISION}"
+echo "CANDIDATE_BASELINE_VCPU=${BASELINE_VCPU}"
+echo "CANDIDATE_BASELINE_MEMORY=${BASELINE_MEMORY}"
+echo "CANDIDATE_TARGET_MEMORY=${CANDIDATE_MEMORY}"
 echo "CANDIDATE_BASELINE_RUNTIME_CONTRACT=SUCCESS"
 
 
@@ -161,6 +185,7 @@ jq \
   --arg image_uri "${IMAGE_URI}" \
   --arg source_sha "${SOURCE_SHA}" \
   --arg image_digest "${IMAGE_DIGEST}" \
+  --arg candidate_memory "${CANDIDATE_MEMORY}" \
   '
   {
     jobDefinitionName: .jobDefinitionName,
@@ -195,6 +220,17 @@ jq \
                 value: $image_digest
               }
             ]
+          )
+
+        | .resourceRequirements =
+          (
+            (.resourceRequirements // [])
+            | map(
+                if .type == "MEMORY"
+                then .value = $candidate_memory
+                else .
+                end
+              )
           )
       ),
 
@@ -232,6 +268,7 @@ jq \
   /tmp/research-candidate-baseline.json \
   > /tmp/research-candidate-register.json
 
+
 PREPARED_IMAGE="$(
   jq -r '.containerProperties.image' \
     /tmp/research-candidate-register.json
@@ -253,6 +290,22 @@ PREPARED_IMAGE_DIGEST="$(
   ' /tmp/research-candidate-register.json
 )"
 
+PREPARED_MEMORY="$(
+  jq -r '
+    .containerProperties.resourceRequirements[]
+    | select(.type == "MEMORY")
+    | .value
+  ' /tmp/research-candidate-register.json
+)"
+
+PREPARED_VCPU="$(
+  jq -r '
+    .containerProperties.resourceRequirements[]
+    | select(.type == "VCPU")
+    | .value
+  ' /tmp/research-candidate-register.json
+)"
+
 if [[ "${PREPARED_IMAGE}" != "${IMAGE_URI}" ]]; then
   echo "CANDIDATE_PREPARED_IMAGE_MISMATCH"
   exit 80
@@ -268,8 +321,21 @@ if [[ "${PREPARED_IMAGE_DIGEST}" != "${IMAGE_DIGEST}" ]]; then
   exit 82
 fi
 
+if [[ "${PREPARED_MEMORY}" != "${CANDIDATE_MEMORY}" ]]; then
+  echo "CANDIDATE_PREPARED_MEMORY_MISMATCH=${PREPARED_MEMORY}"
+  exit 83
+fi
+
+if [[ -z "${PREPARED_VCPU}" || "${PREPARED_VCPU}" == "null" ]]; then
+  echo "CANDIDATE_PREPARED_VCPU_EMPTY"
+  exit 84
+fi
+
 echo "CANDIDATE_RUNTIME_BASELINE_COPIED=SUCCESS"
 echo "CANDIDATE_ARTIFACT_IDENTITY_INJECTED=SUCCESS"
+echo "CANDIDATE_VCPU=${PREPARED_VCPU}"
+echo "CANDIDATE_MEMORY=${PREPARED_MEMORY}"
+echo "CANDIDATE_RUNTIME_RESOURCE_ALIGNMENT=SUCCESS"
 
 
 echo
@@ -336,6 +402,22 @@ REGISTERED_IMAGE_DIGEST="$(
   ' <<< "${CANDIDATE_JSON}"
 )"
 
+REGISTERED_MEMORY="$(
+  jq -r '
+    .containerProperties.resourceRequirements[]
+    | select(.type == "MEMORY")
+    | .value
+  ' <<< "${CANDIDATE_JSON}"
+)"
+
+REGISTERED_VCPU="$(
+  jq -r '
+    .containerProperties.resourceRequirements[]
+    | select(.type == "VCPU")
+    | .value
+  ' <<< "${CANDIDATE_JSON}"
+)"
+
 if [[ "${REGISTERED_IMAGE}" != "${IMAGE_URI}" ]]; then
   echo "REGISTERED_CANDIDATE_IMAGE_MISMATCH"
   exit 100
@@ -351,7 +433,20 @@ if [[ "${REGISTERED_IMAGE_DIGEST}" != "${IMAGE_DIGEST}" ]]; then
   exit 102
 fi
 
+if [[ "${REGISTERED_MEMORY}" != "${CANDIDATE_MEMORY}" ]]; then
+  echo "REGISTERED_CANDIDATE_MEMORY_MISMATCH=${REGISTERED_MEMORY}"
+  exit 103
+fi
+
+if [[ -z "${REGISTERED_VCPU}" || "${REGISTERED_VCPU}" == "null" ]]; then
+  echo "REGISTERED_CANDIDATE_VCPU_EMPTY"
+  exit 104
+fi
+
 echo "REGISTERED_CANDIDATE_ARTIFACT_IDENTITY=SUCCESS"
+echo "REGISTERED_CANDIDATE_VCPU=${REGISTERED_VCPU}"
+echo "REGISTERED_CANDIDATE_MEMORY=${REGISTERED_MEMORY}"
+echo "REGISTERED_CANDIDATE_RUNTIME_RESOURCE=SUCCESS"
 echo "CANDIDATE_JOB_DEFINITION_VERIFY=SUCCESS"
 
 
@@ -385,15 +480,20 @@ echo
 echo "=== WAIT FOR RESEARCH CANDIDATE ==="
 
 while true; do
-  JOB_STATUS="$(
+  JOB_JSON="$(
     aws batch describe-jobs \
       --region "${AWS_REGION}" \
       --jobs "${JOB_ID}" \
-      --query 'jobs[0].status' \
-      --output text
+      --query 'jobs[0]' \
+      --output json
   )"
 
-  if [[ -z "${JOB_STATUS}" || "${JOB_STATUS}" == "None" ]]; then
+  JOB_STATUS="$(
+    jq -r '.status // empty' \
+      <<< "${JOB_JSON}"
+  )"
+
+  if [[ -z "${JOB_STATUS}" ]]; then
     echo "CANDIDATE_JOB_STATUS_EMPTY"
     exit 120
   fi
@@ -406,20 +506,37 @@ while true; do
 
   if [[ "${JOB_STATUS}" == "FAILED" ]]; then
     STATUS_REASON="$(
-      aws batch describe-jobs \
-        --region "${AWS_REGION}" \
-        --jobs "${JOB_ID}" \
-        --query 'jobs[0].statusReason' \
-        --output text
+      jq -r '.statusReason // "UNRESOLVED"' \
+        <<< "${JOB_JSON}"
+    )"
+
+    CONTAINER_REASON="$(
+      jq -r '.container.reason // "UNRESOLVED"' \
+        <<< "${JOB_JSON}"
+    )"
+
+    FAILED_EXIT_CODE="$(
+      jq -r '.container.exitCode // "UNRESOLVED"' \
+        <<< "${JOB_JSON}"
+    )"
+
+    LOG_STREAM="$(
+      jq -r '.container.logStreamName // "UNRESOLVED"' \
+        <<< "${JOB_JSON}"
     )"
 
     echo "CANDIDATE_JOB_RESULT=FAILED"
     echo "CANDIDATE_JOB_STATUS_REASON=${STATUS_REASON}"
+    echo "CANDIDATE_CONTAINER_REASON=${CONTAINER_REASON}"
+    echo "CANDIDATE_CONTAINER_EXIT_CODE=${FAILED_EXIT_CODE}"
+    echo "CANDIDATE_LOG_STREAM=${LOG_STREAM}"
+
     exit 121
   fi
 
   sleep 15
 done
+
 
 JOB_JSON="$(
   aws batch describe-jobs \
@@ -439,6 +556,14 @@ RUN_JOB_DEFINITION="$(
     <<< "${JOB_JSON}"
 )"
 
+RUN_CONTAINER_MEMORY="$(
+  jq -r '
+    .container.resourceRequirements[]?
+    | select(.type == "MEMORY")
+    | .value
+  ' <<< "${JOB_JSON}"
+)"
+
 if [[ -z "${EXIT_CODE}" ]]; then
   echo "CANDIDATE_CONTAINER_EXIT_CODE_EMPTY"
   exit 122
@@ -454,6 +579,7 @@ if [[ "${RUN_JOB_DEFINITION}" != "${CANDIDATE_JOB_DEFINITION_ARN}" ]]; then
   exit 124
 fi
 
+echo "CANDIDATE_RUNTIME_MEMORY=${RUN_CONTAINER_MEMORY:-UNRESOLVED}"
 echo "CANDIDATE_CONTAINER_EXIT_CODE=${EXIT_CODE}"
 echo "CANDIDATE_BATCH_RESULT=SUCCEEDED"
 echo "RESEARCH_CANDIDATE_VERIFIED=SUCCESS"
