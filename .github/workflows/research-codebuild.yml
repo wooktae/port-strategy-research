@@ -24,12 +24,16 @@ jobs:
   codebuild:
     name: Research Build
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 120
 
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
       AWS_OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
       CODEBUILD_PROJECT_NAME: ${{ vars.CODEBUILD_PROJECT_NAME }}
+
+      ECR_REPOSITORY_NAME: portfolio-strategy-research
+      CANDIDATE_JOB_DEFINITION_NAME: portfolio-paper-strategy-research-candidate
+      CANDIDATE_JOB_QUEUE: portfolio-paper-strategy-research-queue
 
     steps:
       - name: Validate workflow configuration
@@ -60,7 +64,10 @@ jobs:
           echo "SOURCE_SHA=${GITHUB_SHA}"
           echo "WORKFLOW_CONFIGURATION=SUCCESS"
 
-      - name: Resolve publish gate
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve release gate
         id: release
         shell: bash
         env:
@@ -69,9 +76,12 @@ jobs:
           set -euo pipefail
 
           PUSH_IMAGE="false"
+          AUTO_CANDIDATE="false"
 
           if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
             PUSH_IMAGE="true"
+            AUTO_CANDIDATE="true"
+
           elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
             if [[ "${DISPATCH_PUSH_IMAGE}" == "true" ]]; then
               PUSH_IMAGE="true"
@@ -79,9 +89,11 @@ jobs:
           fi
 
           echo "push_image=${PUSH_IMAGE}" >> "${GITHUB_OUTPUT}"
+          echo "auto_candidate=${AUTO_CANDIDATE}" >> "${GITHUB_OUTPUT}"
 
           echo "GITHUB_EVENT_NAME=${GITHUB_EVENT_NAME}"
           echo "PUSH_IMAGE=${PUSH_IMAGE}"
+          echo "AUTO_CANDIDATE=${AUTO_CANDIDATE}"
 
           if [[ "${PUSH_IMAGE}" == "true" ]]; then
             echo "ARTIFACT_PUBLISH=ENABLED"
@@ -89,9 +101,16 @@ jobs:
             echo "ARTIFACT_PUBLISH=DISABLED"
           fi
 
+          if [[ "${AUTO_CANDIDATE}" == "true" ]]; then
+            echo "CANDIDATE_AUTOMATION=ENABLED"
+          else
+            echo "CANDIDATE_AUTOMATION=DISABLED"
+          fi
+
           echo "RELEASE_STAGE=BUILD_ONLY"
-          echo "DEPLOYMENT_EXECUTED=NO"
-          echo "PUBLISH_GATE_RESOLUTION=SUCCESS"
+          echo "OPERATING_PROMOTION=DISABLED"
+          echo "STEP_FUNCTIONS_UPDATE=DISABLED"
+          echo "RELEASE_GATE_RESOLUTION=SUCCESS"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -203,25 +222,61 @@ jobs:
           fi
 
           echo "RESEARCH_CODEBUILD_RESULT=SUCCEEDED"
-          echo "DEPLOYMENT_EXECUTED=NO"
-          echo "RESEARCH_WORKFLOW=SUCCESS"
+          echo "RESEARCH_BUILD_VERIFIED=SUCCESS"
+
+      - name: Run Research Candidate
+        id: candidate
+        if: steps.release.outputs.auto_candidate == 'true'
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          GITHUB_RUN_ID_VALUE: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          bash .devops/scripts/deploy-candidate.sh \
+            "${SOURCE_SHA}" \
+            "${AWS_REGION}" \
+            "${ECR_REPOSITORY_NAME}" \
+            "${CANDIDATE_JOB_DEFINITION_NAME}" \
+            "${CANDIDATE_JOB_QUEUE}" \
+            "${GITHUB_RUN_ID_VALUE}"
+
+      - name: Verify operating boundary unchanged
+        if: steps.release.outputs.auto_candidate == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "OPERATING_JOB_DEFINITION_MUTATION=NO"
+          echo "STEP_FUNCTIONS_UPDATE_EXECUTED=NO"
+          echo "CHAMPION_PROMOTION_EXECUTED=NO"
+          echo "RESEARCH_CANDIDATE_ONLY_RELEASE=SUCCESS"
 
       - name: Publish workflow summary
         if: always()
         shell: bash
         env:
           PUSH_IMAGE: ${{ steps.release.outputs.push_image }}
+          AUTO_CANDIDATE: ${{ steps.release.outputs.auto_candidate }}
           BUILD_ID: ${{ steps.start.outputs.build_id }}
+          CANDIDATE_REVISION: ${{ steps.candidate.outputs.candidate_revision }}
+          CANDIDATE_JOB_NAME: ${{ steps.candidate.outputs.candidate_job_name }}
+          CANDIDATE_EXIT_CODE: ${{ steps.candidate.outputs.candidate_exit_code }}
         run: |
           {
-            echo "## Research CodeBuild"
+            echo "## Research DevOps"
             echo
             echo "| Item | Value |"
             echo "| --- | --- |"
             echo "| Source SHA | \`${GITHUB_SHA:0:12}\` |"
             echo "| Event | \`${GITHUB_EVENT_NAME}\` |"
             echo "| Push Image | \`${PUSH_IMAGE:-false}\` |"
-            echo "| Release Stage | \`BUILD_ONLY\` |"
+            echo "| Auto Candidate | \`${AUTO_CANDIDATE:-false}\` |"
             echo "| CodeBuild Started | \`${BUILD_ID:+YES}\` |"
-            echo "| Deployment Executed | \`NO\` |"
+            echo "| Candidate Revision | \`${CANDIDATE_REVISION:-N/A}\` |"
+            echo "| Candidate Job | \`${CANDIDATE_JOB_NAME:-N/A}\` |"
+            echo "| Candidate Exit Code | \`${CANDIDATE_EXIT_CODE:-N/A}\` |"
+            echo "| Champion Promotion | \`NO\` |"
+            echo "| Step Functions Update | \`NO\` |"
           } >> "${GITHUB_STEP_SUMMARY}"
