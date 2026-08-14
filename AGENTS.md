@@ -347,7 +347,9 @@ Research는 내부 adapter를 통해 `port_strategy_common`을 직접 호출한�
 
 - OIDC Trust는 추정하지 않고 실제 Token Subject 계약과 Branch 제한을 확인한다.
 - Trust 범위는 Repository와 `main` Branch로 제한한다.
-- Build-only와 Image Publish를 분리하고, 실패 시 ECR Push를 차단한다.
+- `main` Push는 ECR Publish와 Candidate 자동 실행까지 수행한다.
+- `workflow_dispatch`는 Build-only이며 `push_image` 입력 시에만 선택적 Publish를 수행한다.
+- Build 실패 시 ECR Push를 차단한다.
 - Git SHA 기반 Image Tag와 Digest를 증적으로 사용하고 Mutable `latest` 의존을 만들지 않는다.
 - 운영·Candidate 모두 Digest 고정 Image를 사용한다.
 
@@ -355,10 +357,22 @@ Research는 내부 adapter를 통해 `port_strategy_common`을 직접 호출한�
 
 - Candidate Job Definition Family와 운영 Job Definition Family를 분리한다.
 - Candidate Revision은 Digest Image와 Source SHA·Image Digest 환경변수를 사용한다.
-- Candidate는 `--run-mode CANDIDATE`와 `--require-artifact-identity`로 수동 실행한다.
+- Candidate는 `--run-mode CANDIDATE`와 `--require-artifact-identity`로 실행한다.
+- `main` Push에서 Candidate 신규 Revision이 자동 등록·실행·검증될 수 있다.
+- Candidate Runtime은 Fargate VCPU 1, Memory 4096 MiB로 정렬한다.
 - Candidate 검증은 Job Status, Container Exit Code와 저장 계약 확인까지 포함한다.
 - Candidate 실행으로 운영 Step Functions와 Scheduler를 변경하지 않는다.
+- Candidate 성공은 Challenger 검증 완료이며 Champion 자동 Promotion이 아니다.
 - Candidate 자동 승격을 구성하지 않는다.
+
+### 10A.3.1 DevOps 자동화 범위와 Champion 책임
+
+- DevOps 자동화 범위는 Candidate 생성·실행·검증과 Challenger 확정까지다.
+- Candidate 성공 후 Operating Job Definition, Step Functions 참조와 Champion을 자동 변경하지 않는다.
+- 여러 Challenger 성과 비교와 Champion 선택 판단은 Research 담당자 책임이다.
+- View는 Challenger·Champion 상태 조회와 선택·전환 Interface이며 전략을 판단하지 않는다.
+- Strategy 성과 판단과 Artifact 배포 검증을 분리한다.
+- Champion 전환의 내부 구현 세부는 이번 문서에서 확정하거나 확장하지 않는다.
 
 ### 10A.4 운영 승격·Rollback과 Resource 검증
 
@@ -536,7 +550,9 @@ Research는 내부 adapter를 통해 `port_strategy_common`을 직접 호출한�
 | Version | Common Package·Common Strategy·Research Engine·Metrics Config Version |
 | 실행 구분 | Run Mode (`BACKTEST`, `CANDIDATE`) |
 | 재현성 | Artifact Identity와 Input Snapshot |
-| 승격 | Candidate, Operating Champion, Manual Promotion과 Rollback Revision |
+| 자동화 범위 | `main` Push의 Candidate 생성·실행·검증(Challenger)까지 |
+| Champion 책임 | Research 담당자 선택 판단, View 선택·전환 Interface |
+| 승격 | Candidate·Challenger, Operating Champion과 과거 수동 Promotion·Rollback 이력 |
 | 분석 | Basic Analysis와 Extended Analysis |
 | 리포트 | Summary, Buy·Sell, Trade Detail과 Recommendation |
 | 공통 계약 | `port_strategy_common` Wheel `1.0.0` |

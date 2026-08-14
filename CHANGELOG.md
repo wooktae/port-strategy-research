@@ -7,6 +7,52 @@
 - 민감정보와 일회성 운영값은 기록하지 않는다.
 - 날짜별 worklog는 새로 만들지 않고 주요 변경은 이 문서에 남긴다.
 
+## 2026-08-12
+
+### Research main Push Candidate 자동화 완료
+
+`main` Push 기반 CI에서 ECR Publish와 Candidate 검증까지 자동화한 DevOps AS-IS 변경이다.
+문서 기준 변경이며 이번 작업에서 코드·AWS·DB는 실행하지 않았다.
+
+#### DevOps AS-IS
+
+| 항목 | 변경 내용 |
+|---|---|
+| main Push CI | GitHub Actions·OIDC로 Research CodeBuild 자동 실행 |
+| ECR Publish | Git SHA 기반 Image 자동 Publish와 Image Digest Artifact 확정 |
+| Candidate 등록 | Candidate Job Definition 신규 Revision 자동 등록 |
+| Candidate 실행 | AWS Batch Candidate 자동 실행과 Artifact Identity 검증 |
+| Candidate 검증 | Batch SUCCEEDED와 Container Exit Code 0 확인 |
+| 자동화 범위 확정 | DevOps 자동화 완료 범위를 Challenger 검증까지로 확정 |
+
+#### Candidate Runtime
+
+| 항목 | 값 |
+|---|---|
+| Candidate Revision 4 | VCPU 1, Memory 2048 MiB, Exit Code 137 Fargate OOM |
+| Candidate Memory 정렬 | 4096 MiB로 정렬 |
+| Candidate Revision 5 | VCPU 1, Memory 4096 MiB, 전체 기간 실행 성공 |
+
+#### 운영 경계
+
+| 항목 | 값 |
+|---|---|
+| Operating Job Definition 변경 | 없음 |
+| Step Functions 변경 | 없음 |
+| Champion 자동 Promotion | 미수행 |
+| Champion 선택 판단 | Research 담당자 책임 |
+| Champion 선택·전환 Interface | View 운영 UI |
+
+#### 작업 범위
+
+| 항목 | 값 |
+|---|---|
+| 이번 문서 변경 범위 | `AGENTS.md`, `README.md`, `CHANGELOG.md`, `docs/source-file-catalog.md` |
+| 코드·설정 변경 | 이번 문서 작업에서는 없음 |
+| Backtest·DB·AWS·S3 실행 | 이번 문서 작업에서는 없음 |
+| 일회성 식별자 | 전체 SHA, Digest, ARN, Job ID와 GitHub Run ID는 기록하지 않음 |
+| 과거 이력 | 2026-08-05~06 수동 Candidate·Promotion·Rollback 검증은 당시 이력으로 유지 |
+
 ## 2026-08-06
 
 ### 2026-08-05~2026-08-06 Research Versioned Backtest Platform과 DevOps 적용

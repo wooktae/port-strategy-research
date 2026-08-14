@@ -537,10 +537,11 @@ Research Adapter는 `port_strategy_common`을 직접 호출하며 `port_strategy
 
 | 항목 | 값 |
 |---|---|
-| 책임 | Research 전용 Build-only CI와 조건부 ECR Publish |
+| 책임 | Build/Test/Container/ECR Artifact 생성과 조건부 ECR Publish |
 | 주요 단계 | Compile, Contract Test, Common Wheel 검증, Docker Build와 Container Smoke |
-| Publish 제어 | `PUSH_IMAGE`(기본 `false`)와 `RELEASE_STAGE=BUILD_ONLY` |
+| Publish 제어 | `PUSH_IMAGE`와 `RELEASE_STAGE=BUILD_ONLY` |
 | Image 기준 | Git SHA 기반 Tag, Push 시 Digest 조회 |
+| Candidate 책임 | Candidate Job Definition 등록 책임 없음 (`REGISTRATION=DISABLED`) |
 | AWS 영향 | ECR 조회와 조건부 Push |
 | 변경 위험 | Build·Publish 분리, 실패 시 Push 차단 |
 | 주의 | 실제 ARN, Account ID와 Digest 원문을 문서에 남기지 않음 |
@@ -571,15 +572,33 @@ Research Adapter는 `port_strategy_common`을 직접 호출하며 `port_strategy
 
 | 항목 | 값 |
 |---|---|
-| 책임 | OIDC 인증과 Research CodeBuild 실행·대기 |
+| 책임 | OIDC 인증, CodeBuild 실행·상태 검증과 Candidate Release |
 | Trigger | `main` Push와 `workflow_dispatch` |
 | 인증 | GitHub OIDC (`id-token: write`), 저장소 Variable Role ARN |
-| Publish Gate | `push_image` 입력, `main` Push는 Publish 금지 |
-| AWS 영향 | CodeBuild 시작·상태 조회 |
+| `main` Push | ECR Publish와 Candidate 자동 실행 활성 |
+| `workflow_dispatch` | Build-only, `push_image` 입력 시 선택적 Publish |
+| Candidate 경로 | `main` Push에서 `deploy-candidate.sh` 호출 |
+| 경계 확인 | Operating·Step Functions·Champion 미변경 확인 |
+| AWS 영향 | CodeBuild 시작·상태 조회와 Candidate Release Control |
 | 변경 위험 | OIDC Trust Subject, Branch 제한과 실패 판정 |
 | 주의 | 실제 Role ARN, Account ID와 Token Claim을 문서에 남기지 않음 |
 
-### 10B.5 `.dockerignore`
+### 10B.5 `.devops/scripts/deploy-candidate.sh`
+
+| 항목 | 값 |
+|---|---|
+| 책임 | Candidate Job Definition 신규 Revision 등록과 AWS Batch Candidate 실행·검증 |
+| 실행 주체 | `main` Push Workflow의 Candidate Release 단계 |
+| Artifact | 검증된 ECR Image Digest Resolve와 Artifact Identity 주입·검증 |
+| Baseline | Candidate baseline Runtime 계약 복제 |
+| Runtime | Candidate Memory 4096 MiB 정렬 |
+| 실행 | AWS Batch Candidate 제출·상태 확인 |
+| 검증 | Container Exit Code와 Job Definition Identity 확인 |
+| 경계 | Operating·Step Functions·Champion 변경 없음 |
+| AWS 영향 | Batch Job Definition 등록과 Candidate 실행 |
+| 주의 | Shell 구현 상세, AWS CLI 명령, ARN과 IAM Policy는 기록하지 않음 |
+
+### 10B.6 `.dockerignore`
 
 | 항목 | 값 |
 |---|---|

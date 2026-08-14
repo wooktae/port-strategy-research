@@ -229,11 +229,19 @@ Research 실행은 `BACKTEST`와 `CANDIDATE` Run Mode를 구분한다.
 | RDS 공유 | 같은 RDS를 사용할 수 있으나 Run Mode와 Identity로 구분 |
 
 Candidate는 전략 성과의 자동 승인자가 아니라 배포 Artifact와 실행 계약 검증 경로다.
-Strategy 성과 판단은 Research 책임자가 별도 기준으로 수행한다.
-DevOps 승격은 검증된 Artifact의 운영 실행 가능성을 확인하는 절차다.
+`main` Push 자동화는 Candidate 생성·실행·검증(Challenger)까지 수행하고 여기서 종료한다.
+Candidate 성공은 Challenger 검증 완료를 의미하며 Champion 자동 Promotion을 의미하지 않는다.
 
-여기서 Champion–Challenger는 전략 성과 자동 비교 시스템이 아니다.
-현재 구현은 수동 승인 기반 Candidate Artifact 검증과 운영 Revision 승격 구조다.
+Champion–Challenger 책임은 아래처럼 분리한다.
+
+| 주체 | 책임 |
+|---|---|
+| DevOps 자동화 | Candidate 생성·실행·검증과 Challenger 확정까지 |
+| Research 담당자 | 여러 Challenger 성과 비교와 Champion 선택 판단 |
+| View | Challenger·Champion 상태 조회와 선택·전환 Interface |
+
+View는 전략을 판단하지 않는다.
+Champion 선택 의사결정 주체는 Research 담당자이며, View는 그 결정을 수행하는 Interface다.
 
 ### 3.8 Artifact Identity
 
@@ -638,28 +646,40 @@ Research는 AWS Paper Daily에서 Backtest와 Report 실행 단위로 호출된�
 Scheduler와 Step Functions는 실행 orchestration을 담당한다.
 Research 저장소의 entrypoint 존재는 현재 AWS 실행 상태나 배포 완료 증거가 아니다.
 
-## 14. Research CI와 Container Build
+## 14. Research CI와 Candidate 자동화
 
-Research 전용 DevOps는 GitHub Actions와 CodeBuild 책임을 분리한다.
+Research 전용 DevOps는 `main` Push 기반 자동화이며, Build/Test/Artifact 책임과
+Candidate Release Control 책임을 분리한다.
 
 ```text
-GitHub Actions (OIDC 인증, CodeBuild 시작·상태 확인)
-  → CodeBuild (Compile, Test, Config·Version Contract, Docker Build, Smoke, 조건부 Publish)
-  → ECR (Git SHA Tag Image, Digest 조회)
-  → Candidate Job Definition 수동 실행
-  → Manual Promotion (운영 State Machine Step 4 Revision 승격)
+main Push
+  → GitHub Actions / OIDC
+  → CodeBuild (Compile, Test, Config·Version Contract, Container Smoke, ECR Publish)
+  → ECR immutable Artifact (Git SHA Tag, Image Digest)
+  → Candidate Job Definition 신규 Revision
+  → AWS Batch Candidate 자동 실행
+  → Artifact Identity 검증
+  → Candidate 검증 (Batch SUCCEEDED, Container Exit Code 0)
+  → Challenger 확정
 ```
+
+이 자동 흐름은 Challenger 검증까지 수행하고 종료한다.
+Operating Job Definition, Step Functions 참조와 Champion은 자동 변경하지 않는다.
 
 ### 14.1 책임 분리
 
 | 주체 | 책임 |
 |---|---|
-| GitHub Actions | OIDC 인증과 CodeBuild 실행·상태 확인 |
-| CodeBuild | Compile, Test, Config·Version Contract, Container Build, Smoke와 조건부 Publish |
+| GitHub Actions | OIDC 인증, CodeBuild 실행·상태 확인과 Candidate Release Control |
+| CodeBuild | Compile, Test, Config·Version Contract, Container Build, Smoke와 ECR Artifact 생성 |
+| Candidate Release | Candidate Job Definition 신규 Revision 등록과 AWS Batch Candidate 실행·검증 |
 | CodeBuild Role | Build, Logs와 Research ECR 범위 |
-| GitHub OIDC Role | Research CodeBuild 시작·조회 범위 |
+| GitHub OIDC Role | Research CodeBuild 시작·조회와 Candidate Release Control 범위 |
 
-Batch, Step Functions와 DB 권한은 Build Role에 포함하지 않는다.
+CodeBuild 책임은 Build/Test/Image 생성까지다.
+Candidate Job Definition 신규 Revision 생성과 AWS Batch Candidate 실행은 Release Control 경로가 담당하며,
+Build Role에 운영 Batch 배포 책임을 부여하지 않는다.
+Step Functions와 운영 DB 권한도 Build Role에 포함하지 않는다.
 
 ### 14.2 CodeBuild 단계
 
@@ -684,9 +704,13 @@ Cross-repository Contract는 Decision Source가 Research CodeBuild Context에 �
 |---|---|
 | 인증 | GitHub OIDC, 장기 Access Key 미사용 |
 | Trigger | `main` Push와 `workflow_dispatch` |
-| Publish Gate | `push_image` 입력, `main` Push는 Publish 금지 |
+| `main` Push | ECR Publish와 Candidate 자동 실행·검증까지 수행 |
+| `workflow_dispatch` | Build-only, `push_image` 입력 시에만 선택적 Publish |
 | 전달 | Git SHA를 CodeBuild Source Version으로 전달 |
 | 결과 | 실패한 CodeBuild를 성공으로 처리하지 않음 |
+
+`workflow_dispatch`는 Candidate 자동 실행을 수행하지 않는다.
+`main` Push만 ECR Publish와 Candidate 실행을 자동으로 활성화한다.
 
 ## 15. Candidate와 운영 Job Definition
 
@@ -696,19 +720,41 @@ Candidate 전용 Job Definition은 운영 Family와 분리한다.
 |---|---|
 | 운영 Family | 운영 Backtest Job Definition Family |
 | Candidate Family | 운영과 분리된 `-candidate` Family |
-| Candidate Image | Digest 기반 고정 Image |
+| Candidate Image | 검증된 Git SHA Image의 Digest 기반 고정 Image |
 | Candidate 주입 | Source SHA·Image Digest 환경변수 |
 | Candidate 실행 | `--run-mode CANDIDATE`, `--strategy-config-version RSCFG-0001`, `--require-artifact-identity` |
-| 실행 방식 | 수동 실행, 자동 승격 미구성 |
+| 실행 방식 | `main` Push에서 신규 Revision 자동 등록·실행, 자동 승격 미구성 |
+| Candidate Runtime | Fargate, VCPU 1, Memory 4096 MiB |
 
 Candidate 검증에서는 Job Status와 Container Exit Code, Run·Config Hash·Metrics·Input Snapshot 저장과
 의도적 실패 Candidate의 실패 저장 계약을 확인한다.
-운영 Step Functions와 Scheduler는 Candidate 실행으로 변경하지 않는다.
+
+Candidate 성공 후에도 아래 동작은 자동으로 수행하지 않는다.
+
+- Operating Job Definition 자동 변경
+- Research State Machine 또는 Step Functions 참조 자동 변경
+- Champion 자동 Promotion
+
+### 15.1 Candidate Runtime 정렬 이력
+
+Candidate Runtime Memory는 전체 Backtest 기간 실행 기준으로 4096 MiB로 정렬했다.
+
+| Candidate Revision | Runtime | 결과 |
+|---|---|---|
+| Revision 4 | VCPU 1, Memory 2048 MiB | Exit Code 137 Fargate OutOfMemoryError |
+| Revision 5 | VCPU 1, Memory 4096 MiB | 전체 기간 실행 성공, Exit Code 0 |
+
+Revision 4 실패는 전략 로직·Config 오류가 아니라 Runtime Memory 부족이다.
+이 실패는 OOM 검증 Evidence로 보존하고 성공으로 덮어쓰지 않는다.
+Candidate와 운영 Runtime Memory는 현재 4096 MiB로 정렬되어 있다.
 
 ## 16. 운영 AS-IS
 
-아래는 운영자가 AWS에서 수행한 승격·검증 결과를 문서화한 운영 사실이다.
+아래는 운영자가 AWS에서 수행한 과거 수동 승격·검증 결과를 문서화한 운영 사실이다.
 Research 저장소 코드만으로 확정되는 값이 아니다.
+
+이 승격·Rollback 이력은 과거 수동 검증 사실이며, 현재 `main` Push 자동화 동작이 아니다.
+현재 `main` Push 자동화는 Candidate/Challenger 검증까지만 수행하고 운영 Champion을 변경하지 않는다.
 
 | 항목 | 값 |
 |---|---|
@@ -761,10 +807,11 @@ Common Source Directory를 직접 Copy하지 않고 Wheel Package를 설치한�
 |---|---|
 | `Dockerfile` | Common Wheel 설치와 Compile 기본 CMD |
 | `.dockerignore` | 문서·DevOps Script·비런타임 파일 Build Context 제외 |
-| `.devops/codebuild/buildspec.yml` | Build-only CI와 조건부 ECR Publish |
+| `.devops/codebuild/buildspec.yml` | Build/Test/Container/ECR Artifact 생성 (Candidate 등록 책임 없음) |
 | `.devops/scripts/verify-candidate-contract.py` | Candidate 정적 계약 검증 |
 | `.devops/scripts/container-smoke.py` | Network 차단 Container Smoke Test |
-| `.github/workflows/research-codebuild.yml` | OIDC 인증과 CodeBuild 실행·대기 |
+| `.devops/scripts/deploy-candidate.sh` | Candidate Job Definition 신규 Revision 등록과 AWS Batch Candidate 실행·검증 |
+| `.github/workflows/research-codebuild.yml` | `main` Push Build/Publish Gate, CodeBuild 검증과 Candidate Release |
 | `strategy_profiles/README.md` | Strategy Profile 관리 기준 |
 | `strategy_profiles/RSCFG-0001.json` | Baseline Strategy Profile |
 
