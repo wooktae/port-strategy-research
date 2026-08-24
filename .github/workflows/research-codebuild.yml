@@ -159,33 +159,11 @@ jobs:
             fi
 
             PROFILE_METADATA_VERSION="$(
-              python - "${PROFILE_PATH}" <<'PY'
-import json
-import sys
-
-with open(sys.argv[1], encoding="utf-8-sig") as fp:
-    profile = json.load(fp)
-
-print(
-    profile.get("metadata", {})
-    .get("strategy_config_version", "")
-)
-PY
+              python -c 'import json,sys; p=json.load(open(sys.argv[1], encoding="utf-8-sig")); print(p.get("metadata", {}).get("strategy_config_version", ""))' "${PROFILE_PATH}"
             )"
 
             PROFILE_STATUS="$(
-              python - "${PROFILE_PATH}" <<'PY'
-import json
-import sys
-
-with open(sys.argv[1], encoding="utf-8-sig") as fp:
-    profile = json.load(fp)
-
-print(
-    profile.get("metadata", {})
-    .get("status", "")
-)
-PY
+              python -c 'import json,sys; p=json.load(open(sys.argv[1], encoding="utf-8-sig")); print(p.get("metadata", {}).get("status", ""))' "${PROFILE_PATH}"
             )"
 
             if [[ "${PROFILE_METADATA_VERSION}" != "${STRATEGY_CONFIG_VERSION}" ]]; then
