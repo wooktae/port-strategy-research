@@ -9,6 +9,7 @@ ECR_REPOSITORY_NAME="${3:?ECR_REPOSITORY_NAME is required}"
 CANDIDATE_JOB_DEFINITION_NAME="${4:?CANDIDATE_JOB_DEFINITION_NAME is required}"
 CANDIDATE_JOB_QUEUE="${5:?CANDIDATE_JOB_QUEUE is required}"
 GITHUB_RUN_ID_VALUE="${6:?GITHUB_RUN_ID is required}"
+STRATEGY_CONFIG_VERSION="${7:?STRATEGY_CONFIG_VERSION is required}"
 
 CANDIDATE_MEMORY="4096"
 
@@ -16,6 +17,11 @@ CANDIDATE_MEMORY="4096"
 if [[ ! "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
   echo "SOURCE_SHA_INVALID=${SOURCE_SHA}"
   exit 60
+fi
+
+if [[ ! "${STRATEGY_CONFIG_VERSION}" =~ ^RSCFG-[0-9]{4}$ ]]; then
+  echo "STRATEGY_CONFIG_VERSION_INVALID=${STRATEGY_CONFIG_VERSION}"
+  exit 61
 fi
 
 SHORT_SHA="${SOURCE_SHA:0:12}"
@@ -31,7 +37,7 @@ AWS_ACCOUNT_ID="$(
 
 if [[ ! "${AWS_ACCOUNT_ID}" =~ ^[0-9]{12}$ ]]; then
   echo "AWS_ACCOUNT_ID_INVALID=${AWS_ACCOUNT_ID}"
-  exit 61
+  exit 62
 fi
 
 IMAGE_DIGEST="$(
@@ -45,7 +51,7 @@ IMAGE_DIGEST="$(
 
 if [[ ! "${IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
   echo "IMAGE_DIGEST_INVALID=${IMAGE_DIGEST}"
-  exit 62
+  exit 63
 fi
 
 IMAGE_URI="$(
@@ -186,6 +192,7 @@ jq \
   --arg source_sha "${SOURCE_SHA}" \
   --arg image_digest "${IMAGE_DIGEST}" \
   --arg candidate_memory "${CANDIDATE_MEMORY}" \
+  --arg strategy_config_version "${STRATEGY_CONFIG_VERSION}" \
   '
   {
     jobDefinitionName: .jobDefinitionName,
@@ -196,6 +203,18 @@ jq \
         .containerProperties
 
         | .image = $image_uri
+
+        | .command =
+          (
+            .command as $cmd
+            | ($cmd | index("--strategy-config-version")) as $i
+            | if $i == null
+              then error("CANDIDATE_STRATEGY_CONFIG_ARGUMENT_MISSING")
+              else
+                $cmd
+                | .[$i + 1] = $strategy_config_version
+              end
+          )
 
         | .environment =
           (
@@ -269,6 +288,14 @@ jq \
   > /tmp/research-candidate-register.json
 
 
+PREPARED_CONFIG_VERSION="$(
+  jq -r '
+    .containerProperties.command as $cmd
+    | ($cmd | index("--strategy-config-version")) as $i
+    | if $i == null then empty else $cmd[$i + 1] end
+  ' /tmp/research-candidate-register.json
+)"
+
 PREPARED_IMAGE="$(
   jq -r '.containerProperties.image' \
     /tmp/research-candidate-register.json
@@ -305,6 +332,13 @@ PREPARED_VCPU="$(
     | .value
   ' /tmp/research-candidate-register.json
 )"
+
+if [[ "${PREPARED_CONFIG_VERSION}" != "${STRATEGY_CONFIG_VERSION}" ]]; then
+  echo "CANDIDATE_PREPARED_CONFIG_VERSION_MISMATCH"
+  echo "EXPECTED=${STRATEGY_CONFIG_VERSION}"
+  echo "ACTUAL=${PREPARED_CONFIG_VERSION}"
+  exit 79
+fi
 
 if [[ "${PREPARED_IMAGE}" != "${IMAGE_URI}" ]]; then
   echo "CANDIDATE_PREPARED_IMAGE_MISMATCH"
@@ -381,6 +415,14 @@ CANDIDATE_JSON="$(
     --output json
 )"
 
+REGISTERED_CONFIG_VERSION="$(
+  jq -r '
+    .containerProperties.command as $cmd
+    | ($cmd | index("--strategy-config-version")) as $i
+    | if $i == null then empty else $cmd[$i + 1] end
+  ' <<< "${CANDIDATE_JSON}"
+)"
+
 REGISTERED_IMAGE="$(
   jq -r '.containerProperties.image' \
     <<< "${CANDIDATE_JSON}"
@@ -418,6 +460,13 @@ REGISTERED_VCPU="$(
   ' <<< "${CANDIDATE_JSON}"
 )"
 
+if [[ "${REGISTERED_CONFIG_VERSION}" != "${STRATEGY_CONFIG_VERSION}" ]]; then
+  echo "REGISTERED_CANDIDATE_CONFIG_VERSION_MISMATCH"
+  echo "EXPECTED=${STRATEGY_CONFIG_VERSION}"
+  echo "ACTUAL=${REGISTERED_CONFIG_VERSION}"
+  exit 99
+fi
+
 if [[ "${REGISTERED_IMAGE}" != "${IMAGE_URI}" ]]; then
   echo "REGISTERED_CANDIDATE_IMAGE_MISMATCH"
   exit 100
@@ -443,6 +492,8 @@ if [[ -z "${REGISTERED_VCPU}" || "${REGISTERED_VCPU}" == "null" ]]; then
   exit 104
 fi
 
+echo "REGISTERED_CANDIDATE_CONFIG_VERSION=${REGISTERED_CONFIG_VERSION}"
+echo "REGISTERED_CANDIDATE_CONFIG_VERSION=SUCCESS"
 echo "REGISTERED_CANDIDATE_ARTIFACT_IDENTITY=SUCCESS"
 echo "REGISTERED_CANDIDATE_VCPU=${REGISTERED_VCPU}"
 echo "REGISTERED_CANDIDATE_MEMORY=${REGISTERED_MEMORY}"

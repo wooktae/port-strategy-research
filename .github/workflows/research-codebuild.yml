@@ -6,8 +6,8 @@ on:
       - main
   workflow_dispatch:
     inputs:
-      push_image:
-        description: Push the verified Git SHA image to ECR
+      strategy_change:
+        description: Is Strategy Logic Changed?
         required: true
         default: false
         type: boolean
@@ -34,6 +34,7 @@ jobs:
       ECR_REPOSITORY_NAME: portfolio-strategy-research
       CANDIDATE_JOB_DEFINITION_NAME: portfolio-paper-strategy-research-candidate
       CANDIDATE_JOB_QUEUE: portfolio-paper-strategy-research-queue
+      OPERATING_JOB_DEFINITION_NAME: portfolio-paper-strategy-research
 
     steps:
       - name: Validate workflow configuration
@@ -71,29 +72,35 @@ jobs:
         id: release
         shell: bash
         env:
-          DISPATCH_PUSH_IMAGE: ${{ inputs.push_image }}
+          DISPATCH_STRATEGY_CHANGE: ${{ inputs.strategy_change }}
         run: |
           set -euo pipefail
 
           PUSH_IMAGE="false"
           AUTO_CANDIDATE="false"
+          AUTO_OPERATING="false"
 
           if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
-            PUSH_IMAGE="true"
-            AUTO_CANDIDATE="true"
+            echo "PUSH_RELEASE_ACTION=BUILD_TEST_ONLY"
 
           elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            if [[ "${DISPATCH_PUSH_IMAGE}" == "true" ]]; then
-              PUSH_IMAGE="true"
+            PUSH_IMAGE="true"
+
+            if [[ "${DISPATCH_STRATEGY_CHANGE}" == "true" ]]; then
+              AUTO_CANDIDATE="true"
+            else
+              AUTO_OPERATING="true"
             fi
           fi
 
           echo "push_image=${PUSH_IMAGE}" >> "${GITHUB_OUTPUT}"
           echo "auto_candidate=${AUTO_CANDIDATE}" >> "${GITHUB_OUTPUT}"
+          echo "auto_operating=${AUTO_OPERATING}" >> "${GITHUB_OUTPUT}"
 
           echo "GITHUB_EVENT_NAME=${GITHUB_EVENT_NAME}"
           echo "PUSH_IMAGE=${PUSH_IMAGE}"
           echo "AUTO_CANDIDATE=${AUTO_CANDIDATE}"
+          echo "AUTO_OPERATING=${AUTO_OPERATING}"
 
           if [[ "${PUSH_IMAGE}" == "true" ]]; then
             echo "ARTIFACT_PUBLISH=ENABLED"
@@ -111,6 +118,101 @@ jobs:
           echo "OPERATING_PROMOTION=DISABLED"
           echo "STEP_FUNCTIONS_UPDATE=DISABLED"
           echo "RELEASE_GATE_RESOLUTION=SUCCESS"
+
+      - name: Prepare Strategy Release Identity
+        id: identity
+        shell: bash
+        env:
+          AUTO_CANDIDATE: ${{ steps.release.outputs.auto_candidate }}
+        run: |
+          set -euo pipefail
+
+          RELEASE_SHA="${GITHUB_SHA}"
+          STRATEGY_CONFIG_VERSION=""
+
+          if [[ "${AUTO_CANDIDATE}" == "true" ]]; then
+            mapfile -t NEW_PROFILES < <(
+              git diff-tree \
+                --no-commit-id \
+                --name-only \
+                --diff-filter=A \
+                -r "${GITHUB_SHA}" \
+                -- strategy_profiles/ \
+              | grep -E '^strategy_profiles/RSCFG-[0-9]{4}\.json$' \
+              || true
+            )
+
+            if [[ "${#NEW_PROFILES[@]}" -ne 1 ]]; then
+              echo "NEW_STRATEGY_PROFILE_COUNT=${#NEW_PROFILES[@]}"
+              printf 'NEW_STRATEGY_PROFILE=%s\n' "${NEW_PROFILES[@]:-}"
+              echo "YES_RELEASE_REQUIRES_EXACTLY_ONE_NEW_RSCFG"
+              exit 20
+            fi
+
+            PROFILE_PATH="${NEW_PROFILES[0]}"
+            PROFILE_NAME="$(basename "${PROFILE_PATH}" .json)"
+            STRATEGY_CONFIG_VERSION="${PROFILE_NAME}"
+
+            if [[ ! "${STRATEGY_CONFIG_VERSION}" =~ ^RSCFG-[0-9]{4}$ ]]; then
+              echo "STRATEGY_CONFIG_VERSION_INVALID=${STRATEGY_CONFIG_VERSION}"
+              exit 21
+            fi
+
+            PROFILE_METADATA_VERSION="$(
+              python - "${PROFILE_PATH}" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8-sig") as fp:
+    profile = json.load(fp)
+
+print(
+    profile.get("metadata", {})
+    .get("strategy_config_version", "")
+)
+PY
+            )"
+
+            PROFILE_STATUS="$(
+              python - "${PROFILE_PATH}" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8-sig") as fp:
+    profile = json.load(fp)
+
+print(
+    profile.get("metadata", {})
+    .get("status", "")
+)
+PY
+            )"
+
+            if [[ "${PROFILE_METADATA_VERSION}" != "${STRATEGY_CONFIG_VERSION}" ]]; then
+              echo "PROFILE_METADATA_VERSION_MISMATCH"
+              echo "FILE_VERSION=${STRATEGY_CONFIG_VERSION}"
+              echo "METADATA_VERSION=${PROFILE_METADATA_VERSION}"
+              exit 22
+            fi
+
+            if [[ "${PROFILE_STATUS}" != "CANDIDATE" ]]; then
+              echo "PROFILE_STATUS_INVALID=${PROFILE_STATUS}"
+              exit 23
+            fi
+
+            echo "STRATEGY_PROFILE=${PROFILE_PATH}"
+            echo "STRATEGY_CONFIG_VERSION=${STRATEGY_CONFIG_VERSION}"
+            echo "STRATEGY_PROFILE_SELECTION=SUCCESS"
+          else
+            echo "STRATEGY_CONFIG_VERSION=UNCHANGED"
+            echo "STRATEGY_PROFILE_SELECTION=SKIPPED"
+          fi
+
+          echo "release_sha=${RELEASE_SHA}" >> "${GITHUB_OUTPUT}"
+          echo "strategy_config_version=${STRATEGY_CONFIG_VERSION}" >> "${GITHUB_OUTPUT}"
+
+          echo "RELEASE_SHA=${RELEASE_SHA}"
+          echo "STRATEGY_RELEASE_IDENTITY=SUCCESS"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -143,6 +245,7 @@ jobs:
         shell: bash
         env:
           PUSH_IMAGE: ${{ steps.release.outputs.push_image }}
+          RELEASE_SHA: ${{ steps.identity.outputs.release_sha }}
         run: |
           set -euo pipefail
 
@@ -150,7 +253,7 @@ jobs:
             aws codebuild start-build \
               --region "${AWS_REGION}" \
               --project-name "${CODEBUILD_PROJECT_NAME}" \
-              --source-version "${GITHUB_SHA}" \
+              --source-version "${RELEASE_SHA}" \
               --environment-variables-override \
                 name=PUSH_IMAGE,value="${PUSH_IMAGE}",type=PLAINTEXT \
                 name=RELEASE_STAGE,value=BUILD_ONLY,type=PLAINTEXT \
@@ -165,7 +268,7 @@ jobs:
 
           echo "build_id=${BUILD_ID}" >> "${GITHUB_OUTPUT}"
 
-          echo "SOURCE_SHA=${GITHUB_SHA}"
+          echo "SOURCE_SHA=${RELEASE_SHA}"
           echo "PUSH_IMAGE=${PUSH_IMAGE}"
           echo "CODEBUILD_START=SUCCESS"
 
@@ -224,12 +327,28 @@ jobs:
           echo "RESEARCH_CODEBUILD_RESULT=SUCCEEDED"
           echo "RESEARCH_BUILD_VERIFIED=SUCCESS"
 
+      - name: Register Research Operating Revision
+        id: operating
+        if: steps.release.outputs.auto_operating == 'true' && steps.release.outputs.push_image == 'true'
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.identity.outputs.release_sha }}
+        run: |
+          set -euo pipefail
+
+          bash .devops/scripts/deploy-operating.sh \
+            "${SOURCE_SHA}" \
+            "${AWS_REGION}" \
+            "${ECR_REPOSITORY_NAME}" \
+            "${OPERATING_JOB_DEFINITION_NAME}"
+
       - name: Run Research Candidate
         id: candidate
         if: steps.release.outputs.auto_candidate == 'true'
         shell: bash
         env:
-          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ steps.identity.outputs.release_sha }}
+          STRATEGY_CONFIG_VERSION: ${{ steps.identity.outputs.strategy_config_version }}
           GITHUB_RUN_ID_VALUE: ${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -240,7 +359,8 @@ jobs:
             "${ECR_REPOSITORY_NAME}" \
             "${CANDIDATE_JOB_DEFINITION_NAME}" \
             "${CANDIDATE_JOB_QUEUE}" \
-            "${GITHUB_RUN_ID_VALUE}"
+            "${GITHUB_RUN_ID_VALUE}" \
+            "${STRATEGY_CONFIG_VERSION}"
 
       - name: Verify operating boundary unchanged
         if: steps.release.outputs.auto_candidate == 'true'
