@@ -27,7 +27,8 @@ Research 실행 Artifact 배포와 Strategy 운영 성과 승격은 서로 다�
 | 성격 | Versioned Backtest Platform |
 | 공통 로직 | `port_strategy_common` Wheel `1.0.0` 고정 설치 |
 | 전략 설정 | Version별 Strategy Profile (`strategy_profiles/`) |
-| 기본 Baseline | `RSCFG-0001` |
+| 기본 Baseline | `RSCFG-0001` (`status=BASELINE`) |
+| Challenger | `RSCFG-0002` (`status=CANDIDATE`) |
 | 핵심 실행 | Backtest Research |
 | Run Mode | `BACKTEST`, `CANDIDATE` |
 | 주요 저장 | Run, Daily, Daily Position, Trade Log와 Analysis |
@@ -115,7 +116,16 @@ Common은 판단 계약을 제공하고, Research는 Version별 Profile 선택�
 ### 3.3 Strategy Profile
 
 `strategy_profiles/`는 Version별 Strategy Profile을 관리한다.
-`strategy_config_version`이 Profile Identity이며, `RSCFG-0001`이 현재 기본 Baseline이다.
+`strategy_config_version`이 Profile Identity이며, 각 Version은 별도 Strategy Config Identity다.
+
+| Version | 성격 |
+|---|---|
+| `RSCFG-0001` | Baseline Strategy Profile (`status=BASELINE`) |
+| `RSCFG-0002` | Challenger Strategy Profile (`status=CANDIDATE`) |
+
+`RSCFG-0002`는 `RSCFG-0001`을 덮어쓰지 않고 새 Version으로 분리한 Challenger다.
+두 Profile의 유일한 값 차이는 `market.aggressive_max_positions`이며, `RSCFG-0001`은 `4`, `RSCFG-0002`는 `6`이다.
+나머지 Category 값은 동일하다.
 
 | Config Category | 성격 |
 |---|---|
@@ -142,7 +152,8 @@ Profile 검증 계약:
 | 미존재 Version | DB 연결과 Run 생성 전에 차단 |
 
 Profile Status와 운영 승격 상태는 같은 의미가 아니다.
-`RSCFG-0001`의 `status`는 `BASELINE`이며, 이는 운영 Champion 지정이나 자동 승격을 의미하지 않는다.
+`RSCFG-0002`의 `status=CANDIDATE`는 운영 Champion 지정이나 자동 승격을 의미하지 않는다.
+`RSCFG-0001`의 `status=BASELINE`도 운영 Champion 상태와 동일한 의미가 아니다.
 
 ### 3.4 Config 선택 CLI와 명시적 주입
 
@@ -229,19 +240,24 @@ Research 실행은 `BACKTEST`와 `CANDIDATE` Run Mode를 구분한다.
 | RDS 공유 | 같은 RDS를 사용할 수 있으나 Run Mode와 Identity로 구분 |
 
 Candidate는 전략 성과의 자동 승인자가 아니라 배포 Artifact와 실행 계약 검증 경로다.
-`main` Push 자동화는 Candidate 생성·실행·검증(Challenger)까지 수행하고 여기서 종료한다.
+Candidate 실행은 `--run-mode CANDIDATE`와 선택된 `--strategy-config-version`으로 수행한다.
+Candidate Run은 `strategy_backtest_run`에 Run Mode·Version Identity와 함께 저장된다.
 Candidate 성공은 Challenger 검증 완료를 의미하며 Champion 자동 Promotion을 의미하지 않는다.
+
+`RSCFG-0002` Challenger는 Candidate 경로로 실행해 검증했고, Candidate Run이 DB에 저장된 상태다.
+`RSCFG-0001`과 `RSCFG-0002`는 Version별 Research 결과로 각각 조회할 수 있다.
 
 Champion–Challenger 책임은 아래처럼 분리한다.
 
 | 주체 | 책임 |
 |---|---|
-| DevOps 자동화 | Candidate 생성·실행·검증과 Challenger 확정까지 |
+| DevOps 자동화 | Candidate 생성·실행·검증(Challenger 확정)까지 |
 | Research 담당자 | 여러 Challenger 성과 비교와 Champion 선택 판단 |
-| View | Challenger·Champion 상태 조회와 선택·전환 Interface |
+| View | Version 조회와 Champion·Challenger 비교·선택 Interface |
 
-View는 전략을 판단하지 않는다.
+View는 전략의 우열을 자동 판단하지 않는다.
 Champion 선택 의사결정 주체는 Research 담당자이며, View는 그 결정을 수행하는 Interface다.
+실제 View 운영 승격 기능 구현은 이 문서 작업 범위가 아니다.
 
 ### 3.8 Artifact Identity
 
@@ -646,142 +662,82 @@ Research는 AWS Paper Daily에서 Backtest와 Report 실행 단위로 호출된�
 Scheduler와 Step Functions는 실행 orchestration을 담당한다.
 Research 저장소의 entrypoint 존재는 현재 AWS 실행 상태나 배포 완료 증거가 아니다.
 
-## 14. Research CI와 Candidate 자동화
+## 14. Research CI와 배포 경로 계약
 
-Research 전용 DevOps는 `main` Push 기반 자동화이며, Build/Test/Artifact 책임과
-Candidate Release Control 책임을 분리한다.
+Research 전용 DevOps는 GitHub Actions·OIDC와 CodeBuild 기반이며,
+Build/Test/Artifact 책임과 Release Control 책임을 분리한다.
+아래는 Research가 알아야 하는 실행 계약 수준이며, 세부 GitHub Actions 분기, IAM Policy,
+AWS CLI, Job Definition Revision 변경 절차와 Step Functions 갱신 절차는 `port-devops` 문서 책임이다.
 
-```text
-main Push
-  → GitHub Actions / OIDC
-  → CodeBuild (Compile, Test, Config·Version Contract, Container Smoke, ECR Publish)
-  → ECR immutable Artifact (Git SHA Tag, Image Digest)
-  → Candidate Job Definition 신규 Revision
-  → AWS Batch Candidate 자동 실행
-  → Artifact Identity 검증
-  → Candidate 검증 (Batch SUCCEEDED, Container Exit Code 0)
-  → Challenger 확정
-```
+### 14.1 현재 배포 경로 AS-IS
 
-이 자동 흐름은 Challenger 검증까지 수행하고 종료한다.
-Operating Job Definition, Step Functions 참조와 Champion은 자동 변경하지 않는다.
+| 항목 | 현재 계약 |
+|---|---|
+| `main` Push | Build/Test 검증 경로 (Image Publish·Candidate·Operating 미수행) |
+| Release 경로 분리 | Strategy Logic 변경 여부에 따라 Candidate 또는 Operating Release로 분리 |
+| Candidate 경로 | 신규 Challenger `RSCFG` Version을 `-candidate` Family로 검증 |
+| Operating 경로 | 검증된 Artifact를 운영 Family로 배포 (Strategy Config Version 유지) |
+| 공통 | Candidate와 Operating은 서로 다른 배포 경로 |
 
-### 14.1 책임 분리
+- `main` Push는 Build/Test 검증까지만 수행한다.
+- Candidate와 Operating Release는 서로 다른 경로이며 같은 실행으로 묶지 않는다.
+- Candidate는 자동 Champion Promotion이 아니다.
+- Research 실행 Artifact 배포와 Strategy 성과 승격은 별도 절차다.
+
+### 14.2 책임 분리
 
 | 주체 | 책임 |
 |---|---|
-| GitHub Actions | OIDC 인증, CodeBuild 실행·상태 확인과 Candidate Release Control |
-| CodeBuild | Compile, Test, Config·Version Contract, Container Build, Smoke와 ECR Artifact 생성 |
-| Candidate Release | Candidate Job Definition 신규 Revision 등록과 AWS Batch Candidate 실행·검증 |
+| GitHub Actions | OIDC 인증, CodeBuild 실행·상태 확인과 Release Control |
+| CodeBuild | Compile, Test, Config·Version Contract, Container Build·Smoke와 조건부 ECR Artifact 생성 |
 | CodeBuild Role | Build, Logs와 Research ECR 범위 |
-| GitHub OIDC Role | Research CodeBuild 시작·조회와 Candidate Release Control 범위 |
+| GitHub OIDC Role | Research CodeBuild 시작·조회와 Release Control 범위 |
 
-CodeBuild 책임은 Build/Test/Image 생성까지다.
-Candidate Job Definition 신규 Revision 생성과 AWS Batch Candidate 실행은 Release Control 경로가 담당하며,
-Build Role에 운영 Batch 배포 책임을 부여하지 않는다.
-Step Functions와 운영 DB 권한도 Build Role에 포함하지 않는다.
+Build Role에 운영 Batch 배포, Step Functions와 운영 DB 권한을 부여하지 않는다.
+Candidate·Operating Release는 검증된 Digest 고정 Image를 사용하고, Mutable `latest` 의존을 만들지 않는다.
+세부 권한과 배포 절차는 `port-devops` 문서에서 관리하고 이 문서에 복제하지 않는다.
 
-### 14.2 CodeBuild 단계
+## 15. Candidate와 운영 경로 계약
 
-| 단계 | 내용 |
-|---|---|
-| Source Identity | Git SHA 확인과 Git SHA 기반 Image Tag |
-| Common Wheel | Wheel SHA-256 확인과 설치 Version 검증 |
-| Python Compile | 전체 Python 파일 Compile |
-| Internal Contract | Config·Version 계약 등 Verify 모듈 실행 |
-| Candidate Contract | 정적 Candidate 계약 검증 |
-| Docker Build | Git SHA Tag Image Build |
-| Container Smoke | Network 차단 Import·CLI·Profile 검증 |
-| Optional Publish | `PUSH_IMAGE=true`일 때만 ECR Push와 Digest 조회 |
+Candidate 전용 Job Definition Family는 운영 Family와 분리한다.
 
-Build-only와 Image Publish를 분리하고, 실패 시 ECR Push를 차단한다.
-Mutable `latest` Tag 의존을 제거하고 Git SHA Tag와 Digest를 증적으로 사용한다.
-Cross-repository Contract는 Decision Source가 Research CodeBuild Context에 없으므로 실행하지 않는다.
-
-### 14.3 GitHub Actions
-
-| 항목 | 기준 |
-|---|---|
-| 인증 | GitHub OIDC, 장기 Access Key 미사용 |
-| Trigger | `main` Push와 `workflow_dispatch` |
-| `main` Push | ECR Publish와 Candidate 자동 실행·검증까지 수행 |
-| `workflow_dispatch` | Build-only, `push_image` 입력 시에만 선택적 Publish |
-| 전달 | Git SHA를 CodeBuild Source Version으로 전달 |
-| 결과 | 실패한 CodeBuild를 성공으로 처리하지 않음 |
-
-`workflow_dispatch`는 Candidate 자동 실행을 수행하지 않는다.
-`main` Push만 ECR Publish와 Candidate 실행을 자동으로 활성화한다.
-
-## 15. Candidate와 운영 Job Definition
-
-Candidate 전용 Job Definition은 운영 Family와 분리한다.
-
-| 항목 | 기준 |
+| 항목 | 계약 |
 |---|---|
 | 운영 Family | 운영 Backtest Job Definition Family |
 | Candidate Family | 운영과 분리된 `-candidate` Family |
-| Candidate Image | 검증된 Git SHA Image의 Digest 기반 고정 Image |
-| Candidate 주입 | Source SHA·Image Digest 환경변수 |
-| Candidate 실행 | `--run-mode CANDIDATE`, `--strategy-config-version RSCFG-0001`, `--require-artifact-identity` |
-| 실행 방식 | `main` Push에서 신규 Revision 자동 등록·실행, 자동 승격 미구성 |
+| Artifact | Candidate·운영 모두 검증된 Digest 고정 Image와 Source SHA·Image Digest 주입 |
+| Candidate 실행 | `--run-mode CANDIDATE`, 선택 `--strategy-config-version`, `--require-artifact-identity` |
 | Candidate Runtime | Fargate, VCPU 1, Memory 4096 MiB |
+| Operating Release | Strategy Config Version을 유지한 채 검증된 Artifact만 교체 |
 
-Candidate 검증에서는 Job Status와 Container Exit Code, Run·Config Hash·Metrics·Input Snapshot 저장과
+Candidate 검증에서는 Job Status·Container Exit Code와 Run·Config Hash·Metrics·Input Snapshot 저장,
 의도적 실패 Candidate의 실패 저장 계약을 확인한다.
 
-Candidate 성공 후에도 아래 동작은 자동으로 수행하지 않는다.
+Candidate 성공 후에도 Operating Job Definition, Step Functions 참조와 Champion은 자동 변경하지 않는다.
+Job Definition Revision 등록과 Step Functions 참조 전환의 실제 절차는 `port-devops` 문서 책임이다.
 
-- Operating Job Definition 자동 변경
-- Research State Machine 또는 Step Functions 참조 자동 변경
-- Champion 자동 Promotion
+## 16. 운영 승격·Rollback 과거 이력
 
-### 15.1 Candidate Runtime 정렬 이력
-
-Candidate Runtime Memory는 전체 Backtest 기간 실행 기준으로 4096 MiB로 정렬했다.
-
-| Candidate Revision | Runtime | 결과 |
-|---|---|---|
-| Revision 4 | VCPU 1, Memory 2048 MiB | Exit Code 137 Fargate OutOfMemoryError |
-| Revision 5 | VCPU 1, Memory 4096 MiB | 전체 기간 실행 성공, Exit Code 0 |
-
-Revision 4 실패는 전략 로직·Config 오류가 아니라 Runtime Memory 부족이다.
-이 실패는 OOM 검증 Evidence로 보존하고 성공으로 덮어쓰지 않는다.
-Candidate와 운영 Runtime Memory는 현재 4096 MiB로 정렬되어 있다.
-
-## 16. 운영 AS-IS
-
-아래는 운영자가 AWS에서 수행한 과거 수동 승격·검증 결과를 문서화한 운영 사실이다.
+아래는 운영자가 AWS에서 수행한 과거 수동 승격·검증 결과를 문서화한 운영 사실이며,
 Research 저장소 코드만으로 확정되는 값이 아니다.
-
-이 승격·Rollback 이력은 과거 수동 검증 사실이며, 현재 `main` Push 자동화 동작이 아니다.
-현재 `main` Push 자동화는 Candidate/Challenger 검증까지만 수행하고 운영 Champion을 변경하지 않는다.
+이 이력은 과거 수동 검증 사실로 보존하며, 현재 자동화 AS-IS(14.1)와 구분한다.
 
 | 항목 | 값 |
 |---|---|
-| 운영 Champion | Research Job Definition Revision 7 |
-| 운영 Step 4 | Revision 7 |
-| Step 4 단독 검증 경로 | Revision 7 |
-| 운영 Resource | VCPU 1, Memory 4096MiB |
-| Attempt Timeout | 600초 (이번 성공 실행에서 미초과) |
-| 이전 Rollback Revision | Revision 5 (ACTIVE 유지) |
+| 당시 운영 Champion | Research Job Definition Revision 7 |
+| 당시 운영 Resource | VCPU 1, Memory 4096MiB |
+| 당시 Rollback 대상 | Revision 5 (ACTIVE 유지) |
 | Revision 6 | OOM 실패 Revision, 증적으로 보존 |
-| 운영 Image | Digest 고정 |
-| 운영 Run Mode | `BACKTEST` |
-| 운영 Strategy Config Version | `RSCFG-0001` |
-| Artifact Identity | 필수 검증 적용 |
-| Candidate 자동 승격 | 없음 |
+| 당시 운영 Run Mode | `BACKTEST` |
+| 당시 운영 Strategy Config Version | `RSCFG-0001` |
 
-승격·Rollback 요약:
+과거 승격·Rollback 요약:
 
-- 기존 운영 Champion Revision 5에서 검증된 Candidate Artifact로 운영 Revision 6을 등록했다.
-- 운영 State Machine Step 4 참조를 Revision 5에서 6으로 승격했다.
-- Revision 6은 부하 검증에서 Container Exit Code 137 Fargate OutOfMemoryError로 실패했다.
-- 이는 전략 로직·Config 오류가 아니라 Runtime Memory 부족이다.
-- 실패 직후 운영과 Step 4 전용 State Machine을 Revision 5로 Rollback했다.
-- Revision 6의 Image·Command·Config·Role·Secret·Environment를 유지하고 Memory만 4096MiB로 확장해 Revision 7을 등록했다.
-- Revision 7을 Step 4 전용 State Machine에서 단독 검증(Step Functions·AWS Batch 성공, Exit Code 0)한 뒤 운영 Step 4를 Revision 7로 최종 승격했다.
+- Champion Revision 5에서 검증된 Artifact로 Revision 6을 등록하고 운영 Step 4 참조를 5→6으로 승격했다.
+- Revision 6은 VCPU 1·Memory 2048MiB에서 Exit Code 137 Fargate OutOfMemoryError로 실패했다(로직·Config 오류가 아닌 Memory 부족).
+- Revision 5로 Rollback한 뒤, Memory만 4096MiB로 확장한 Revision 7을 단독 검증하고 운영 Step 4로 최종 승격했다.
 
-Rollback은 Candidate Family 내부 Revision 전환이 아니라 실제 운영 State Machine의 Champion Pointer 변경이다.
+이 이력은 과거 수동 검증 사실이며, 현재 `main` Push는 이런 운영 Champion 변경을 자동으로 수행하지 않는다.
 Strategy 성과 평가와 DevOps Artifact 승격 책임은 분리한다.
 
 ## 17. 컨테이너와 주요 DevOps 파일
@@ -807,13 +763,18 @@ Common Source Directory를 직접 Copy하지 않고 Wheel Package를 설치한�
 |---|---|
 | `Dockerfile` | Common Wheel 설치와 Compile 기본 CMD |
 | `.dockerignore` | 문서·DevOps Script·비런타임 파일 Build Context 제외 |
-| `.devops/codebuild/buildspec.yml` | Build/Test/Container/ECR Artifact 생성 (Candidate 등록 책임 없음) |
+| `.devops/codebuild/buildspec.yml` | Build/Test/Container/ECR Artifact 생성 (Job Definition 등록 책임 없음) |
 | `.devops/scripts/verify-candidate-contract.py` | Candidate 정적 계약 검증 |
 | `.devops/scripts/container-smoke.py` | Network 차단 Container Smoke Test |
-| `.devops/scripts/deploy-candidate.sh` | Candidate Job Definition 신규 Revision 등록과 AWS Batch Candidate 실행·검증 |
-| `.github/workflows/research-codebuild.yml` | `main` Push Build/Publish Gate, CodeBuild 검증과 Candidate Release |
+| `.devops/scripts/generate-strategy-config.py` | 최신 Profile에서 다음 `RSCFG` Challenger(`status=CANDIDATE`) 생성 |
+| `.devops/scripts/deploy-candidate.sh` | Candidate Family 신규 Revision 등록과 AWS Batch Candidate 실행·검증 |
+| `.devops/scripts/deploy-operating.sh` | 운영 Family Revision 등록과 운영 Step 4 참조 전환 |
+| `.github/workflows/research-codebuild.yml` | `main` Push Build/Test와 Candidate·Operating Release 경로 분기 |
 | `strategy_profiles/README.md` | Strategy Profile 관리 기준 |
-| `strategy_profiles/RSCFG-0001.json` | Baseline Strategy Profile |
+| `strategy_profiles/RSCFG-0001.json` | Baseline Strategy Profile (`status=BASELINE`) |
+| `strategy_profiles/RSCFG-0002.json` | Challenger Strategy Profile (`status=CANDIDATE`) |
+
+위 DevOps 파일의 IAM, ARN, Job Definition Revision과 Step Functions 운영 절차 상세는 `port-devops` 문서 책임이다.
 
 ### 17.3 AWS Batch Report Wrapper
 

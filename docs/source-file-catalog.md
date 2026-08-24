@@ -459,8 +459,20 @@ Research Adapter는 `port_strategy_common`을 직접 호출하며 `port_strategy
 | 주요 출력 | Loader가 읽는 Version별 Config Override |
 | Category | metadata, market, filter, sizing, buy_guard, buy, sell, backtest_policy, metrics |
 | Identity | `strategy_config_version=RSCFG-0001`, `metrics_config_version=RMETRICS-0001` |
+| Status | `BASELINE` |
 | 변경 영향 | 전략 판단 결과와 Config Hash |
 | 주의 | 세부 Config 값 전체를 문서에 복제하지 않음 |
+
+### 10A.2b `strategy_profiles/RSCFG-0002.json`
+
+| 항목 | 값 |
+|---|---|
+| 책임 | Challenger Strategy Profile |
+| Status | `CANDIDATE` |
+| 주요 차이 | `market.aggressive_max_positions=6` (RSCFG-0001은 4) |
+| Baseline 관계 | `RSCFG-0001`을 덮어쓰지 않는 별도 Config Identity |
+| 변경 영향 | Challenger 전략 판단 결과와 Config Hash |
+| 주의 | `CANDIDATE`는 운영 Champion 지정이 아님 |
 
 ### 10A.3 `strategy_profile_loader.py`
 
@@ -572,31 +584,46 @@ Research Adapter는 `port_strategy_common`을 직접 호출하며 `port_strategy
 
 | 항목 | 값 |
 |---|---|
-| 책임 | OIDC 인증, CodeBuild 실행·상태 검증과 Candidate Release |
+| 책임 | OIDC 인증, CodeBuild 실행·상태 검증과 Release Control |
 | Trigger | `main` Push와 `workflow_dispatch` |
-| 인증 | GitHub OIDC (`id-token: write`), 저장소 Variable Role ARN |
-| `main` Push | ECR Publish와 Candidate 자동 실행 활성 |
-| `workflow_dispatch` | Build-only, `push_image` 입력 시 선택적 Publish |
-| Candidate 경로 | `main` Push에서 `deploy-candidate.sh` 호출 |
-| 경계 확인 | Operating·Step Functions·Champion 미변경 확인 |
-| AWS 영향 | CodeBuild 시작·상태 조회와 Candidate Release Control |
-| 변경 위험 | OIDC Trust Subject, Branch 제한과 실패 판정 |
-| 주의 | 실제 Role ARN, Account ID와 Token Claim을 문서에 남기지 않음 |
+| `main` Push | Build/Test 검증 경로 (Candidate 자동 실행 아님) |
+| 경로 분기 | Strategy Logic 변경 여부에 따라 Candidate 또는 Operating Release로 분리 |
+| Candidate 경로 | `deploy-candidate.sh` 호출 |
+| Operating 경로 | `deploy-operating.sh` 호출 |
+| AWS 영향 | CodeBuild 시작·상태 조회와 Release Control |
+| 주의 | 세부 분기·OIDC·IAM·ARN 상세는 `port-devops` 문서 책임 |
 
 ### 10B.5 `.devops/scripts/deploy-candidate.sh`
 
 | 항목 | 값 |
 |---|---|
-| 책임 | Candidate Job Definition 신규 Revision 등록과 AWS Batch Candidate 실행·검증 |
-| 실행 주체 | `main` Push Workflow의 Candidate Release 단계 |
-| Artifact | 검증된 ECR Image Digest Resolve와 Artifact Identity 주입·검증 |
-| Baseline | Candidate baseline Runtime 계약 복제 |
-| Runtime | Candidate Memory 4096 MiB 정렬 |
-| 실행 | AWS Batch Candidate 제출·상태 확인 |
-| 검증 | Container Exit Code와 Job Definition Identity 확인 |
+| 책임 | Candidate Family 신규 Revision 등록과 AWS Batch Candidate 실행·검증 |
+| 실행 경로 | Candidate Release 경로 |
+| 검증 | Artifact Identity, Container Exit Code와 Job Definition Identity 확인 |
 | 경계 | Operating·Step Functions·Champion 변경 없음 |
 | AWS 영향 | Batch Job Definition 등록과 Candidate 실행 |
-| 주의 | Shell 구현 상세, AWS CLI 명령, ARN과 IAM Policy는 기록하지 않음 |
+| 주의 | Shell 구현 상세, AWS CLI, ARN과 IAM Policy는 `port-devops` 책임 |
+
+### 10B.5b `.devops/scripts/deploy-operating.sh`
+
+| 항목 | 값 |
+|---|---|
+| 책임 | 운영 Family Revision 등록과 운영 Step 4 참조 전환 |
+| 실행 경로 | Operating Release 경로 |
+| Config 유지 | 운영 Strategy Config Version을 유지하고 변경 시 실패 |
+| 경계 | Candidate 경로와 분리된 운영 배포 경로 |
+| AWS 영향 | Batch Job Definition 등록과 Step Functions 참조 전환 |
+| 주의 | State Machine·ARN·IAM 운영 절차 상세는 `port-devops` 책임 |
+
+### 10B.5c `.devops/scripts/generate-strategy-config.py`
+
+| 항목 | 값 |
+|---|---|
+| 책임 | 최신 `RSCFG` Profile에서 다음 Challenger Version 생성 |
+| 처리 | 다음 Version 파일 생성과 `status=CANDIDATE` 설정 |
+| Baseline | 기존 Profile을 덮어쓰지 않고 신규 파일만 생성 |
+| DB·AWS 영향 | 없음 (파일 생성) |
+| 주의 | 생성 Version은 Challenger이며 자동 Champion이 아님 |
 
 ### 10B.6 `.dockerignore`
 

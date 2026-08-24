@@ -221,6 +221,17 @@ Research는 내부 adapter를 통해 `port_strategy_common`을 직접 호출한�
 - Run ID와 생성·시작·종료 시각은 비교 대상에서 제외한다.
 - "완전히 동일한 Input Snapshot Hash를 검증했다"고 잘못 기록하지 않는다.
 
+### 4A.8 Strategy Config Version과 Challenger 분리
+
+- `strategy_config_version`은 Strategy Logic Release Identity로 취급한다.
+- 새로운 Strategy Logic 실험은 기존 Baseline Profile을 직접 덮어쓰지 않는다.
+- Challenger는 새로운 `RSCFG` Version으로 분리하고, 기존 Version은 별도 Config Identity로 유지한다.
+- 현재 `RSCFG-0001`은 Baseline(`status=BASELINE`), `RSCFG-0002`는 Challenger(`status=CANDIDATE`)다.
+- Profile Status `CANDIDATE`는 운영 Champion을 뜻하지 않는다.
+- Version별 Research 결과는 각각 조회할 수 있고, 성과 비교와 Champion 선택은 Research 담당자가 판단한다.
+- View는 Version 조회와 Champion·Challenger 선택 Interface이며 전략의 우열을 자동 판단하지 않는다.
+- Research 변경으로 `port_strategy_common` 또는 StrategyDecision 계약을 임의로 변경하지 않는다.
+
 ## 5. 입력 데이터 계약
 
 | 입력 | 역할 |
@@ -343,22 +354,24 @@ Research는 내부 adapter를 통해 `port_strategy_common`을 직접 호출한�
 - GitHub OIDC Role은 Research CodeBuild 시작·조회 범위로 제한한다.
 - Batch, Step Functions와 DB 권한은 Build Role에 포함하지 않는다.
 
-### 10A.2 OIDC Trust와 Image 계약
+### 10A.2 배포 경로와 Image 계약
 
-- OIDC Trust는 추정하지 않고 실제 Token Subject 계약과 Branch 제한을 확인한다.
-- Trust 범위는 Repository와 `main` Branch로 제한한다.
-- `main` Push는 ECR Publish와 Candidate 자동 실행까지 수행한다.
-- `workflow_dispatch`는 Build-only이며 `push_image` 입력 시에만 선택적 Publish를 수행한다.
+- `main` Push는 Build/Test 검증 경로다. `main` Push가 Candidate를 항상 자동 실행한다고 표현하지 않는다.
+- Strategy Logic 변경 여부에 따라 Candidate 또는 Operating Release 경로가 분리될 수 있다.
+- Candidate와 Operating은 서로 다른 배포 경로다.
+- Candidate는 자동 Champion Promotion이 아니다.
 - Build 실패 시 ECR Push를 차단한다.
 - Git SHA 기반 Image Tag와 Digest를 증적으로 사용하고 Mutable `latest` 의존을 만들지 않는다.
 - 운영·Candidate 모두 Digest 고정 Image를 사용한다.
+- OIDC Trust, 세부 GitHub Actions 분기, IAM Policy와 AWS 배포 절차는 `port-devops` 문서 책임이며 이 파일에 복제하지 않는다.
 
 ### 10A.3 Candidate와 운영 경로 분리
 
 - Candidate Job Definition Family와 운영 Job Definition Family를 분리한다.
 - Candidate Revision은 Digest Image와 Source SHA·Image Digest 환경변수를 사용한다.
-- Candidate는 `--run-mode CANDIDATE`와 `--require-artifact-identity`로 실행한다.
-- `main` Push에서 Candidate 신규 Revision이 자동 등록·실행·검증될 수 있다.
+- Candidate는 `--run-mode CANDIDATE`, 선택된 `--strategy-config-version`과 `--require-artifact-identity`로 실행한다.
+- Candidate Release 경로는 Challenger `RSCFG` Version을 `-candidate` Family로 검증한다.
+- Operating Release 경로는 Strategy Config Version을 유지한 채 검증된 Artifact만 교체한다.
 - Candidate Runtime은 Fargate VCPU 1, Memory 4096 MiB로 정렬한다.
 - Candidate 검증은 Job Status, Container Exit Code와 저장 계약 확인까지 포함한다.
 - Candidate 실행으로 운영 Step Functions와 Scheduler를 변경하지 않는다.
@@ -550,9 +563,11 @@ Research는 내부 adapter를 통해 `port_strategy_common`을 직접 호출한�
 | Version | Common Package·Common Strategy·Research Engine·Metrics Config Version |
 | 실행 구분 | Run Mode (`BACKTEST`, `CANDIDATE`) |
 | 재현성 | Artifact Identity와 Input Snapshot |
-| 자동화 범위 | `main` Push의 Candidate 생성·실행·검증(Challenger)까지 |
-| Champion 책임 | Research 담당자 선택 판단, View 선택·전환 Interface |
-| 승격 | Candidate·Challenger, Operating Champion과 과거 수동 Promotion·Rollback 이력 |
+| 전략 Version | `RSCFG-0001` Baseline, `RSCFG-0002` Challenger |
+| 배포 경로 | `main` Push Build/Test, Strategy Logic 변경 여부에 따른 Candidate·Operating 분리 |
+| Champion 책임 | Research 담당자 선택 판단, View 조회·선택 Interface |
+| 승격 | Candidate·Operating 별도 경로와 과거 수동 Promotion·Rollback 이력 |
+| DevOps 상세 | IAM·AWS 배포 절차는 `port-devops` 문서 책임 |
 | 분석 | Basic Analysis와 Extended Analysis |
 | 리포트 | Summary, Buy·Sell, Trade Detail과 Recommendation |
 | 공통 계약 | `port_strategy_common` Wheel `1.0.0` |

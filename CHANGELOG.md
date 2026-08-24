@@ -7,6 +7,45 @@
 - 민감정보와 일회성 운영값은 기록하지 않는다.
 - 날짜별 worklog는 새로 만들지 않고 주요 변경은 이 문서에 남긴다.
 
+## 2026-08-24
+
+### Research Strategy Version과 Champion–Challenger 경로 고도화
+
+Strategy Config Version을 Strategy Logic Release Identity로 두고, Baseline을 덮어쓰지 않는
+Challenger Version과 Candidate·Operating 배포 경로 분리를 반영한 변경이다.
+이번 작업은 4개 문서 정비이며 코드·AWS·DB·Backtest는 실행하지 않았다.
+
+#### 기능·구조 AS-IS
+
+| 항목 | 값 |
+|---|---|
+| Challenger 추가 | `RSCFG-0002` Challenger Profile 추가 (`status=CANDIDATE`) |
+| 값 차이 | `market.aggressive_max_positions` `4` → `6` (RSCFG-0001은 유지) |
+| Baseline 보존 | `RSCFG-0001` Baseline을 덮어쓰지 않고 별도 Version으로 분리 |
+| Candidate 실행 | `RSCFG-0002` Candidate 실행 성공 (운영자 검증 사실) |
+| Candidate 저장 | Candidate Run이 `strategy_backtest_run`에 저장됨 |
+| Version 조회 | `RSCFG-0001`·`RSCFG-0002` Version별 결과 조회 가능 |
+
+#### 배포 경로 AS-IS
+
+| 항목 | 값 |
+|---|---|
+| `main` Push | Build/Test 검증 경로 (Candidate 자동 실행 아님) |
+| 경로 분리 | Strategy Logic 변경 여부에 따라 Candidate 또는 Operating Release로 분리 |
+| Candidate·Operating | 서로 다른 배포 경로 |
+| Champion Promotion | Candidate 성공은 자동 Champion Promotion이 아님 |
+| Champion 판단 | Research 담당자 판단, View는 조회·선택 Interface |
+
+#### 문서 경계
+
+| 항목 | 값 |
+|---|---|
+| 과거 표현 정정 | "main Push → Candidate 자동 실행" 표현을 현재 AS-IS로 수정 |
+| 과거 이력 보존 | Revision 5·6·7 승격·Rollback은 과거 수동 검증 이력으로 유지 |
+| DevOps 상세 | IAM·AWS CLI·Job Definition·Step Functions 절차는 `port-devops` 책임 |
+| 변경 범위 | `AGENTS.md`, `README.md`, `CHANGELOG.md`, `docs/source-file-catalog.md` |
+| 일회성 식별자 | 전체 SHA, Digest, ARN, Job ID와 GitHub Run ID는 기록하지 않음 |
+
 ## 2026-08-12
 
 ### Research main Push Candidate 자동화 완료
