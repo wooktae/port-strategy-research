@@ -9,8 +9,11 @@ on:
       strategy_change:
         description: Is Strategy Logic Changed?
         required: true
-        default: false
-        type: boolean
+        default: "NO"
+        type: choice
+        options:
+          - "NO"
+          - "YES"
 
 permissions:
   contents: read
@@ -86,7 +89,7 @@ jobs:
           elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
             PUSH_IMAGE="true"
 
-            if [[ "${DISPATCH_STRATEGY_CHANGE}" == "true" ]]; then
+            if [[ "${DISPATCH_STRATEGY_CHANGE}" == "YES" ]]; then
               AUTO_CANDIDATE="true"
             else
               AUTO_OPERATING="true"
@@ -131,28 +134,19 @@ jobs:
           STRATEGY_CONFIG_VERSION=""
 
           if [[ "${AUTO_CANDIDATE}" == "true" ]]; then
-            mapfile -t NEW_PROFILES < <(
-              git diff-tree \
-                --no-commit-id \
-                --name-only \
-                --diff-filter=A \
-                -r "${GITHUB_SHA}" \
-                -- strategy_profiles/ \
-              | grep -E '^strategy_profiles/RSCFG-[0-9]{4}\.json$' \
-              || true
-            )
+            PROFILE_PATH="$(
+              python -c 'import glob,json; rows=[(json.load(open(p,encoding="utf-8-sig")).get("metadata",{}).get("strategy_config_version",""),p) for p in glob.glob("strategy_profiles/RSCFG-*.json") if json.load(open(p,encoding="utf-8-sig")).get("metadata",{}).get("status","")=="CANDIDATE"]; print(sorted(rows)[-1][1] if rows else "")'
+            )"
 
-            if [[ "${#NEW_PROFILES[@]}" -ne 1 ]]; then
-              echo "NEW_STRATEGY_PROFILE_COUNT=${#NEW_PROFILES[@]}"
-              printf 'NEW_STRATEGY_PROFILE=%s\n' "${NEW_PROFILES[@]:-}"
-              echo "YES_RELEASE_REQUIRES_EXACTLY_ONE_NEW_RSCFG"
+            if [[ -z "${PROFILE_PATH}" ]]; then
+              echo "CANDIDATE_STRATEGY_PROFILE_NOT_FOUND"
               exit 20
             fi
 
-            PROFILE_PATH="${NEW_PROFILES[0]}"
             PROFILE_NAME="$(basename "${PROFILE_PATH}" .json)"
             STRATEGY_CONFIG_VERSION="${PROFILE_NAME}"
 
+            echo "SELECTED_CANDIDATE_PROFILE=${PROFILE_PATH}"
             if [[ ! "${STRATEGY_CONFIG_VERSION}" =~ ^RSCFG-[0-9]{4}$ ]]; then
               echo "STRATEGY_CONFIG_VERSION_INVALID=${STRATEGY_CONFIG_VERSION}"
               exit 21
