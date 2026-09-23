@@ -1,4 +1,4 @@
-"""거래별 상세 텍스트 리포트를 생성하는 모듈."""
+"""Module that generates the per-trade detail text report."""
 
 from datetime import datetime
 
@@ -22,7 +22,7 @@ from port_strategy_research.report_formatter import (
 
 
 def generate_trade_detail_report(run_id: str, output_file: str = "03_거래_상세_리포트.txt"):
-    """단일 run_id의 완료 거래 상세 내역을 지정 파일로 생성한다."""
+    """Generate the detailed record of completed trades for a single run_id into the given file."""
     conn = get_conn()
     cur = conn.cursor()
 

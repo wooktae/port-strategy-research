@@ -1,4 +1,4 @@
-"""Candidate Run Mode·실패 종료·운영 조회 격리 계약 검증."""
+"""Verifies the Candidate Run Mode, failure finalization, and operating-query isolation contract."""
 
 from __future__ import annotations
 

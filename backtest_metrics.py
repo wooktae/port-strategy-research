@@ -1,4 +1,4 @@
-"""백테스트 성과 지표를 명시적 Metrics Config로 계산한다."""
+"""Computes backtest performance metrics using an explicit Metrics Config."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def calculate_mdd(
     *,
     metrics_config: dict[str, Any],
 ):
-    """MDD를 계산하며 동일 실행 Metrics Config 계약을 확인한다."""
+    """Computes MDD while verifying the same-execution Metrics Config contract."""
     _validate_metrics_config(metrics_config)
 
     result = df.copy()
@@ -43,7 +43,7 @@ def calculate_sharpe(
     *,
     metrics_config: dict[str, Any],
 ):
-    """명시적 무위험수익률과 연간 거래일 수로 Sharpe를 계산한다."""
+    """Computes Sharpe using the explicit risk-free rate and trading days per year."""
     _validate_metrics_config(metrics_config)
 
     risk_free_rate = float(

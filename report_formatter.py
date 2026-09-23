@@ -1,4 +1,4 @@
-"""리포트 출력용 label, percentage, 사유 문자열 포맷터 모듈."""
+"""Formatter module for report label, percentage, and reason strings."""
 
 from decimal import Decimal
 from typing import Any, Optional
@@ -9,7 +9,7 @@ FMT_CFG = REPORT_CONFIG["formatter"]
 
 
 # =========================================================
-# 라벨 정의
+# Label definitions
 # =========================================================
 
 EXIT_REASON_LABELS = {
@@ -31,7 +31,7 @@ EXIT_REASON_LABELS = {
     "short_pressure": "공매도 압력 정리",
     "stale_loser": "장기 부진 정리",
     "weak_signal": "약한 신호 정리",
-    # 과거/확장 코드 호환용
+    # For backward compatibility with legacy/extended codes
     "market_block_loser": "BLOCK 손실 포지션 정리",
     "market_block_weak": "BLOCK 상대 약세 정리",
     "market_block_time_exit": "BLOCK 장기 체류 정리",
@@ -73,7 +73,7 @@ RUN_INPUT_LABELS = {
 
 
 # =========================================================
-# 공통 유틸
+# Common utilities
 # =========================================================
 
 def to_float(v: Any, default: Optional[float] = 0.0) -> Optional[float]:
@@ -194,7 +194,7 @@ def build_buy_reason(
     final_strong = to_float(thresholds.get("final_strong"), 0.0)
     final_extreme = to_float(thresholds.get("final_extreme"), 0.0)
 
-    # 수급
+    # Supply/demand (flow)
     if flow >= FMT_CFG["flow_very_strong"]:
         flow_desc = "수급 지표가 매우 우호적이었음"
     elif flow >= FMT_CFG["flow_strong"]:
@@ -209,7 +209,7 @@ def build_buy_reason(
         f"(수급 점수 {flow:.2f}, 최소 기준 {flow_min:.2f})"
     )
 
-    # 점수
+    # Score
     if score >= final_extreme:
         score_desc = "종합 점수가 최상위 구간이었음"
     elif score >= final_strong:
@@ -227,7 +227,7 @@ def build_buy_reason(
         f"최상위 기준 {final_extreme:.2f})"
     )
 
-    # 정보
+    # Information signal
     if info > FMT_CFG["info_positive_strong"]:
         info_desc = "정보 신호가 뚜렷하게 긍정적이었음"
     elif info > 0:
@@ -239,7 +239,7 @@ def build_buy_reason(
 
     lines.append(f"{info_desc} (정보 점수 {info:.2f})")
 
-    # 종합 판단
+    # Overall decision
     decisions = []
     if flow >= flow_min:
         decisions.append("수급 조건 충족")

@@ -1,7 +1,7 @@
-"""백테스트 요약 텍스트 리포트를 생성하는 모듈.
+"""Module that generates the backtest summary text report.
 
-run 요약, 일별 성과, 주요 분석 통계를 읽어 사람이 읽는 txt 파일로 출력한다.
-실행 시 DB 조회와 로컬 파일 쓰기가 발생한다.
+It reads the run summary, daily performance, and key analysis statistics and writes them to a human-readable txt file.
+Running it performs DB queries and local file writes.
 """
 
 from datetime import datetime
@@ -47,7 +47,7 @@ def _write_empty(f):
 
 
 def generate_summary_report(run_id: str, output_file: str = "01_요약리포트.txt"):
-    """단일 run_id의 요약 리포트를 지정 파일로 생성한다."""
+    """Generate the summary report for a single run_id into the given file."""
     conn = get_conn()
     cur = conn.cursor()
 
@@ -72,7 +72,7 @@ def generate_summary_report(run_id: str, output_file: str = "01_요약리포트.
             )
 
             # --------------------------------------------------
-            # 최종 결과
+            # Final results
             # --------------------------------------------------
             _write_section_title(f, "최종 결과")
             f.write(f"누적 이익: {pct_str(run_summary['total_return'])}\n")
@@ -82,7 +82,7 @@ def generate_summary_report(run_id: str, output_file: str = "01_요약리포트.
             f.write(f"실험 입력값: {format_run_inputs(run_inputs)}\n\n")
 
             # --------------------------------------------------
-            # 청산 사유 통계
+            # Exit reason statistics
             # --------------------------------------------------
             _write_section_title(f, "청산 사유 통계")
             for reason, stat in sorted(reason_stats.items()):
@@ -94,7 +94,7 @@ def generate_summary_report(run_id: str, output_file: str = "01_요약리포트.
                 )
 
             # --------------------------------------------------
-            # 보유 기간 통계
+            # Holding-period statistics
             # --------------------------------------------------
             f.write("\n")
             _write_section_title(f, "보유 기간 통계")
@@ -107,7 +107,7 @@ def generate_summary_report(run_id: str, output_file: str = "01_요약리포트.
                 )
 
             # --------------------------------------------------
-            # BLOCK 손실군 상세
+            # BLOCK loss group details
             # --------------------------------------------------
             f.write("\n")
             _write_section_title(f, "BLOCK 손실군 상세 (질 저하형 + 기타 약세형)")
@@ -124,7 +124,7 @@ def generate_summary_report(run_id: str, output_file: str = "01_요약리포트.
                     )
 
             # --------------------------------------------------
-            # BLOCK 손실군 요약
+            # BLOCK loss group summary
             # --------------------------------------------------
             f.write("\n")
             _write_section_title(f, "BLOCK 손실군 요약")
@@ -193,7 +193,7 @@ def generate_summary_report(run_id: str, output_file: str = "01_요약리포트.
                 f.write(f"- 손실군 전체 거래 수: {total_bad}건\n")
 
             # --------------------------------------------------
-            # 보유구간별 유형 요약
+            # Type summary by holding-period bucket
             # --------------------------------------------------
             f.write("\n")
             _write_section_title(f, "BLOCK 손실군 보유구간별 유형 요약")
@@ -220,7 +220,7 @@ def generate_summary_report(run_id: str, output_file: str = "01_요약리포트.
                 _write_empty(f)
 
             # --------------------------------------------------
-            # 수익구간 요약
+            # Profit bucket summary
             # --------------------------------------------------
             f.write("\n")
             _write_section_title(f, "BLOCK 손실군 수익구간 요약")
@@ -236,7 +236,7 @@ def generate_summary_report(run_id: str, output_file: str = "01_요약리포트.
                 _write_empty(f)
 
             # --------------------------------------------------
-            # BLOCK 기타 약세형 조합 요약
+            # BLOCK weak_other combo summary
             # --------------------------------------------------
             f.write("\n")
             _write_section_title(f, "기타 약세형 세부 조합 요약")
@@ -328,7 +328,7 @@ def generate_summary_report(run_id: str, output_file: str = "01_요약리포트.
                 _write_empty(f)
 
             # --------------------------------------------------
-            # 보유구간별 세부 조합 요약
+            # Detailed combo summary by holding-period bucket
             # --------------------------------------------------
             f.write("\n")
             _write_section_title(f, "기타 약세형 보유구간별 세부 조합 요약")
@@ -361,7 +361,7 @@ def generate_summary_report(run_id: str, output_file: str = "01_요약리포트.
                 _write_empty(f)
 
             # --------------------------------------------------
-            # BLOCK flat 요약
+            # BLOCK flat summary
             # --------------------------------------------------
             f.write("\n")
             _write_section_title(f, "BLOCK 평탄형 요약")
@@ -388,7 +388,7 @@ def generate_summary_report(run_id: str, output_file: str = "01_요약리포트.
                     )
 
             # --------------------------------------------------
-            # BLOCK 선별 보유 후보 사례
+            # BLOCK selective-hold candidate examples
             # --------------------------------------------------
             f.write("\n")
             _write_section_title(f, "BLOCK 선별 보유 후보 사례")

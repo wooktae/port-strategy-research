@@ -1,4 +1,4 @@
-"""백테스트 기존 포지션 처리 모듈."""
+"""Module for processing existing backtest positions."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ def _valid_price(price: dict) -> bool:
 def build_entry_buy_info_from_position(
     position: dict,
 ) -> dict:
-    """신규 Entry 정보 우선, 구형 3필드 구조를 Fallback한다."""
+    """Prefers the new Entry info, falling back to the legacy 3-field structure."""
     entry_buy_info = position.get("entry_buy_info")
     if isinstance(entry_buy_info, dict) and entry_buy_info:
         return entry_buy_info
@@ -72,7 +72,7 @@ def process_existing_positions(
     strategy_config_version: str,
     config_hash: str,
 ):
-    """명시적 SELL·Backtest Policy Config로 기존 포지션을 처리한다."""
+    """Processes existing positions using the explicit SELL and Backtest Policy Config."""
     sold_returns = []
     held_returns = []
 

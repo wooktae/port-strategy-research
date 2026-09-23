@@ -1,11 +1,11 @@
-"""Research 실행 Version Identity를 구성하는 공통 helper.
+"""Common helper that assembles the Research execution Version Identity.
 
-Common Package Version은 현재 Python Runtime에 실제 설치된 Distribution Metadata를,
-Common Strategy Version은 설치된 Common Wheel이 제공하는 공개 Version 상수를,
-Research Engine Version은 Research 저장소 전용 상수를,
-Strategy Config Version은 실행 시 생성된 Config Snapshot을,
-Metrics Config Version은 Resolved Config Metadata를,
-Source SHA와 Image Digest는 배포 Runtime 환경변수를 기준으로 한다.
+The Common Package Version is based on the Distribution Metadata actually installed in the current Python Runtime,
+the Common Strategy Version on the public Version constant provided by the installed Common Wheel,
+the Research Engine Version on a constant dedicated to the Research repository,
+the Strategy Config Version on the Config Snapshot generated at execution time,
+the Metrics Config Version on the Resolved Config Metadata,
+and the Source SHA and Image Digest on the deployment Runtime environment variables.
 """
 
 from __future__ import annotations
@@ -36,12 +36,12 @@ RESEARCH_IMAGE_DIGEST_ENV = "RESEARCH_IMAGE_DIGEST"
 
 
 class ResearchVersionIdentityError(ValueError):
-    """Research Version Identity가 누락되거나 불일치할 때 발생한다."""
+    """Raised when the Research Version Identity is missing or mismatched."""
 
 
 @dataclass(frozen=True)
 class CommonPackageIdentity:
-    """Profile 선언값과 Runtime 설치값을 함께 보존한다."""
+    """Preserves both the Profile-declared value and the Runtime-installed value."""
 
     declared_version: str
     runtime_version: str
@@ -50,7 +50,7 @@ class CommonPackageIdentity:
 
 @dataclass(frozen=True)
 class CommonStrategyIdentity:
-    """Profile 선언값과 Common Runtime 전략 Version을 함께 보존한다."""
+    """Preserves both the Profile-declared value and the Common Runtime strategy Version."""
 
     declared_version: str
     runtime_version: str
@@ -58,14 +58,14 @@ class CommonStrategyIdentity:
 
 @dataclass(frozen=True)
 class ResearchEngineIdentity:
-    """Research Runtime Engine Version을 보존한다."""
+    """Preserves the Research Runtime Engine Version."""
 
     runtime_version: str
 
 
 @dataclass(frozen=True)
 class StrategyConfigIdentity:
-    """실행 Snapshot과 Resolved Metadata의 Strategy Config Version."""
+    """Strategy Config Version from the execution Snapshot and the Resolved Metadata."""
 
     snapshot_version: str
     metadata_version: str
@@ -73,14 +73,14 @@ class StrategyConfigIdentity:
 
 @dataclass(frozen=True)
 class MetricsConfigIdentity:
-    """실행 Snapshot Metadata의 Metrics Config Version."""
+    """Metrics Config Version from the execution Snapshot Metadata."""
 
     version: str
 
 
 @dataclass(frozen=True)
 class ResearchArtifactIdentity:
-    """배포 Source와 Container Image의 실행 증적."""
+    """Execution evidence of the deployment Source and the Container Image."""
 
     source_sha: str | None
     image_digest: str | None
@@ -124,7 +124,7 @@ def _get_required_metadata_string(
 
 
 def get_installed_common_package_version() -> str:
-    """현재 Runtime에 설치된 Common Distribution Version을 반환한다."""
+    """Returns the Common Distribution Version installed in the current Runtime."""
     try:
         version = metadata.version(COMMON_DISTRIBUTION_NAME)
     except metadata.PackageNotFoundError as exc:
@@ -145,7 +145,7 @@ def get_installed_common_package_version() -> str:
 def get_declared_common_package_version(
     resolved_config: Mapping[str, Any],
 ) -> str:
-    """Resolved Config Metadata의 Common Package 선언 Version을 반환한다."""
+    """Returns the Common Package declared Version from the Resolved Config Metadata."""
     return _get_required_metadata_string(
         resolved_config,
         key="common_package_version",
@@ -161,7 +161,7 @@ def get_declared_common_package_version(
 def resolve_common_package_identity(
     resolved_config: Mapping[str, Any],
 ) -> CommonPackageIdentity:
-    """Profile 선언 Version과 실제 설치 Version의 일치를 검증한다."""
+    """Verifies that the Profile-declared Version matches the actually installed Version."""
     declared_version = get_declared_common_package_version(
         resolved_config
     )
@@ -181,7 +181,7 @@ def resolve_common_package_identity(
 
 
 def get_runtime_common_strategy_version() -> str:
-    """설치된 Common Wheel이 제공하는 Strategy Version을 반환한다."""
+    """Returns the Strategy Version provided by the installed Common Wheel."""
     if not isinstance(COMMON_STRATEGY_VERSION, str):
         raise ResearchVersionIdentityError(
             "COMMON_STRATEGY_RUNTIME_VERSION_TYPE_INVALID"
@@ -199,7 +199,7 @@ def get_runtime_common_strategy_version() -> str:
 def get_declared_common_strategy_version(
     resolved_config: Mapping[str, Any],
 ) -> str:
-    """Resolved Config Metadata의 Common Strategy 선언 Version을 반환한다."""
+    """Returns the Common Strategy declared Version from the Resolved Config Metadata."""
     return _get_required_metadata_string(
         resolved_config,
         key="common_strategy_version",
@@ -215,7 +215,7 @@ def get_declared_common_strategy_version(
 def resolve_common_strategy_identity(
     resolved_config: Mapping[str, Any],
 ) -> CommonStrategyIdentity:
-    """Profile 선언값과 Common Runtime Strategy Version 일치를 검증한다."""
+    """Verifies that the Profile-declared value matches the Common Runtime Strategy Version."""
     declared_version = get_declared_common_strategy_version(
         resolved_config
     )
@@ -235,7 +235,7 @@ def resolve_common_strategy_identity(
 
 
 def get_runtime_research_engine_version() -> str:
-    """Research 저장소 전용 Engine Version을 반환한다."""
+    """Returns the Engine Version dedicated to the Research repository."""
     if not isinstance(RESEARCH_ENGINE_VERSION, str):
         raise ResearchVersionIdentityError(
             "RESEARCH_ENGINE_VERSION_TYPE_INVALID"
@@ -251,7 +251,7 @@ def get_runtime_research_engine_version() -> str:
 
 
 def resolve_research_engine_identity() -> ResearchEngineIdentity:
-    """Research Runtime Engine Identity를 생성한다."""
+    """Creates the Research Runtime Engine Identity."""
     return ResearchEngineIdentity(
         runtime_version=get_runtime_research_engine_version()
     )
@@ -280,7 +280,7 @@ def _validate_version_pattern(
 def get_snapshot_strategy_config_version(
     config_snapshot: StrategyConfigSnapshot,
 ) -> str:
-    """Config Snapshot이 보유한 Strategy Config Version을 반환한다."""
+    """Returns the Strategy Config Version held by the Config Snapshot."""
     return _validate_version_pattern(
         config_snapshot.strategy_config_version,
         pattern=STRATEGY_CONFIG_VERSION_PATTERN,
@@ -296,7 +296,7 @@ def get_snapshot_strategy_config_version(
 def get_metadata_strategy_config_version(
     resolved_config: Mapping[str, Any],
 ) -> str:
-    """Resolved Config Metadata의 Strategy Config Version을 반환한다."""
+    """Returns the Strategy Config Version from the Resolved Config Metadata."""
     metadata_version = _get_required_metadata_string(
         resolved_config,
         key="strategy_config_version",
@@ -323,7 +323,7 @@ def get_metadata_strategy_config_version(
 def resolve_strategy_config_identity(
     config_snapshot: StrategyConfigSnapshot,
 ) -> StrategyConfigIdentity:
-    """Snapshot과 Resolved Metadata의 Config Version 일치를 검증한다."""
+    """Verifies that the Config Version of the Snapshot matches that of the Resolved Metadata."""
     snapshot_version = get_snapshot_strategy_config_version(
         config_snapshot
     )
@@ -347,7 +347,7 @@ def resolve_strategy_config_identity(
 def get_metrics_config_version(
     resolved_config: Mapping[str, Any],
 ) -> str:
-    """Resolved Config Metadata의 Metrics Config Version을 반환한다."""
+    """Returns the Metrics Config Version from the Resolved Config Metadata."""
     version = _get_required_metadata_string(
         resolved_config,
         key="metrics_config_version",
@@ -374,7 +374,7 @@ def get_metrics_config_version(
 def resolve_metrics_config_identity(
     config_snapshot: StrategyConfigSnapshot,
 ) -> MetricsConfigIdentity:
-    """실행 Snapshot에서 Metrics Config Version Identity를 생성한다."""
+    """Creates the Metrics Config Version Identity from the execution Snapshot."""
     return MetricsConfigIdentity(
         version=get_metrics_config_version(
             config_snapshot.resolved_config
@@ -398,11 +398,11 @@ def resolve_research_artifact_identity(
     *,
     require_complete: bool = False,
 ) -> ResearchArtifactIdentity:
-    """Source SHA와 Image Digest 환경변수를 검증해 실행 증적으로 만든다.
+    """Validates the Source SHA and Image Digest environment variables into execution evidence.
 
-    10번 구조 단계에서는 두 값이 모두 없으면 UNRESOLVED를 허용한다.
-    둘 중 하나만 있거나 형식이 잘못되면 항상 차단한다.
-    Candidate AWS Batch 실행에서는 require_complete=True로 강제한다.
+    In structural step 10, UNRESOLVED is allowed when both values are absent.
+    If only one is present or the format is invalid, it is always blocked.
+    In Candidate AWS Batch execution, require_complete=True is enforced.
     """
     source_sha = _normalize_optional_environment_value(
         RESEARCH_SOURCE_SHA_ENV

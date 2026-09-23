@@ -16,7 +16,7 @@ def allocate_positions(
     *,
     sizing_config: dict[str, Any],
 ):
-    """명시적으로 받은 Sizing Config로 포지션 크기를 산출한다."""
+    """Computes position sizes using the explicitly provided Sizing Config."""
     common_decision = CommonMarketDecision(
         market_signal=market_decision.signal_type,
         base_exposure=float(market_decision.base_exposure),

@@ -1,7 +1,7 @@
-"""확장 백테스트 분석 테이블을 run_id 기준으로 재생성하는 모듈.
+"""Module that regenerates the extended backtest analysis tables by run_id.
 
-거래 상세, signal/holding, ticker, entry/exit, sector, MB weak 후보 분석을 계산한다.
-분석 테이블 delete/insert가 포함된 DB write 경로이므로 리포트 검토 중 직접 실행하지 않는다.
+It computes trade detail, signal/holding, ticker, entry/exit, sector, and MB weak candidate analyses.
+Because this is a DB write path that includes analysis-table delete/insert, do not run it directly during report review.
 """
 
 from port_strategy_research.report_data_loader import (
@@ -54,7 +54,7 @@ P4_LABEL = f"{_fmt_num(abs(p4) * 100)}%%"
 
 
 def run_analysis_extended(conn, run_id: str):
-    """단일 run_id에 대한 확장 분석 테이블들을 재계산해 저장한다."""
+    """Recomputes and saves the extended analysis tables for a single run_id."""
     cur = conn.cursor()
 
     run_summary = get_run_summary(cur, run_id)
@@ -66,7 +66,7 @@ def run_analysis_extended(conn, run_id: str):
 
     flow_min_label = _fmt_num(thresholds["flow_min"])
 
-    # 기존 분석 결과 삭제
+    # Delete the existing analysis results
     cur.execute("DELETE FROM strategy_backtest_analysis WHERE run_id = %s", (run_id,))
     cur.execute("DELETE FROM strategy_backtest_holding_analysis WHERE run_id = %s", (run_id,))
     cur.execute("DELETE FROM strategy_backtest_mbweak_analysis WHERE run_id = %s", (run_id,))
@@ -80,7 +80,7 @@ def run_analysis_extended(conn, run_id: str):
     cur.execute("DELETE FROM strategy_backtest_mbweak_candidate_analysis WHERE run_id = %s", (run_id,))
     cur.execute("DELETE FROM strategy_backtest_mbweak_other_analysis WHERE run_id = %s", (run_id,))
     
-    # 1) exit reason 분석
+    # 1) exit reason analysis
     cur.execute(
         """
         INSERT INTO strategy_backtest_analysis (run_id, reason, trades, avg_return, win_rate)
@@ -97,7 +97,7 @@ def run_analysis_extended(conn, run_id: str):
         (run_id, run_id),
     )
 
-    # 2) holding 분석
+    # 2) holding analysis
     cur.execute(
         """
         INSERT INTO strategy_backtest_holding_analysis (run_id, holding_period, trades, avg_return, win_rate)
@@ -114,7 +114,7 @@ def run_analysis_extended(conn, run_id: str):
         (run_id, run_id),
     )
 
-    # 3) market_block bad 상세 (quality_drop + weak_other)
+    # 3) market_block bad details (quality_drop + weak_other)
     cur.execute(
         """
         INSERT INTO strategy_backtest_mbweak_analysis (run_id, holding_period, trades, avg_return, avg_flow, avg_final)
@@ -798,7 +798,7 @@ def run_analysis_extended(conn, run_id: str):
         (run_id, run_id),
     )
 
-    # 20) market_block_weak_other 상세 분석
+    # 20) market_block_weak_other detailed analysis
     cur.execute(
         """
         INSERT INTO strategy_backtest_mbweak_other_analysis

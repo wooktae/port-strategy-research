@@ -1,1 +1,1 @@
-"""포트폴리오 전략 백테스트와 리포트 생성을 위한 research 패키지."""
+"""Research package for portfolio strategy backtesting and report generation."""

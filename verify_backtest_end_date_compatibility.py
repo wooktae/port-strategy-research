@@ -1,4 +1,4 @@
-"""Backtest End Date 선택 전달 하위 호환 계약 검증."""
+"""Verifies the Backtest End Date optional-forwarding backward-compatibility contract."""
 
 from __future__ import annotations
 

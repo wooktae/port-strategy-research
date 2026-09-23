@@ -1,7 +1,7 @@
-"""Research Strategy Profile Schema와 Resolved Config 검증.
+"""Research Strategy Profile Schema and Resolved Config validation.
 
-Profile JSON은 Strategy Version별 Override를 표현한다.
-실행 시 Common 1.0.0 기본값과 병합하고, 완전한 Resolved Config를 생성한다.
+The Profile JSON expresses per-Strategy-Version Overrides.
+At execution time it is merged with the Common 1.0.0 defaults to produce a complete Resolved Config.
 """
 
 from __future__ import annotations
@@ -79,7 +79,7 @@ BUY_GUARD_EXPLICIT_KEYS = {
 
 
 class StrategyProfileValidationError(ValueError):
-    """Strategy Profile 계약 위반."""
+    """Strategy Profile contract violation."""
 
 
 def _build_common_defaults() -> dict[str, dict[str, Any]]:
@@ -330,7 +330,7 @@ def resolve_strategy_profile(
     *,
     requested_version: str,
 ) -> dict[str, Any]:
-    """Common Default와 Profile Override를 병합해 완전한 Config를 반환한다."""
+    """Merges the Common Defaults with the Profile Overrides and returns a complete Config."""
     validate_strategy_profile(
         profile,
         requested_version=requested_version,

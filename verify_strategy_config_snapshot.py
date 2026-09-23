@@ -1,4 +1,4 @@
-"""Resolved Config Snapshot과 SHA-256의 DB 없는 계약 검증."""
+"""DB-free contract verification of the Resolved Config Snapshot and its SHA-256."""
 
 from __future__ import annotations
 

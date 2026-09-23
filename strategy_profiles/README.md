@@ -1,23 +1,23 @@
 # Research Strategy Profiles
 
-이 디렉터리는 고정된 Common Engine에 주입할 Research Strategy Profile을 관리한다.
+This directory manages the Research Strategy Profiles that are injected into the fixed Common Engine.
 
-## 책임
+## Responsibilities
 
-- Market, Filter, Sizing, BUY Guard, BUY, SELL 설정을 Version별로 관리한다.
-- Backtest Policy와 Metrics 설정을 전략 실행 설정과 함께 추적한다.
-- Common Package Version과 Common Strategy Version을 Metadata에 기록한다.
-- 실제 실행에서는 Profile Override와 Common Default를 병합한 Resolved Config를 사용한다.
+- Manage the Market, Filter, Sizing, BUY Guard, BUY, and SELL settings per Version.
+- Track the Backtest Policy and Metrics settings together with the strategy execution settings.
+- Record the Common Package Version and Common Strategy Version in the Metadata.
+- At actual execution time, use the Resolved Config that merges the Profile Override with the Common Default.
 
-## 제외 범위
+## Out of Scope
 
-- Backtest 시작일과 Decision 기준일은 Run Input으로 관리한다.
-- REPORT_CONFIG는 거래 결과가 아닌 분석과 표현 설정이므로 포함하지 않는다.
-- Profile 상태는 운영 자동 승격이나 Champion 지정을 의미하지 않는다.
+- The Backtest start date and the Decision reference date are managed as Run Input.
+- REPORT_CONFIG is an analysis and presentation setting rather than a trading result, so it is not included.
+- The Profile status does not imply automatic operational Promotion or Champion designation.
 
 ## Baseline
 
-- RSCFG-0001은 Common Package 1.0.0 기준 Baseline Profile이다.
-- Common에 명시된 Config와 BUY Guard 함수 내부의 숨은 Default를 전개한다.
-- Decimal 기반 값은 정밀도 보존을 위해 JSON 문자열로 저장한다.
-- Schema와 Unknown Key 강제 검증은 후속 Profile Validator에서 수행한다.
+- RSCFG-0001 is the Baseline Profile against Common Package 1.0.0.
+- It expands the Config declared in Common and the hidden defaults inside the BUY Guard functions.
+- Decimal-based values are stored as JSON strings to preserve precision.
+- Schema and Unknown Key enforcement is performed by the subsequent Profile Validator.

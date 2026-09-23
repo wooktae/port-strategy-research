@@ -1,7 +1,7 @@
-"""block 장세 예외 매수 후보를 별도 규칙으로 검증하는 연구용 백테스트 스크립트.
+"""Research backtest script that validates block-market exception buy candidates using separate rules.
 
-CLI threshold를 받아 후보를 만들고 forward return, 거래 요약, 월별 요약을 출력한다.
-DB 연결이 발생하며 backtest 유사 계산을 수행하므로 명시 승인 없이 실행하지 않는다.
+It takes CLI thresholds, builds candidates, and prints forward returns, a trade summary, and a monthly summary.
+Because a DB connection occurs and backtest-like computation is performed, do not run it without explicit approval.
 """
 
 from __future__ import annotations
@@ -195,7 +195,7 @@ def load_trading_dates(
     end_date: date,
 ) -> List[date]:
     """
-    pre_total_stock_daily_feature 기준 전체 거래일 캘린더 조회.
+    Query the full trading-day calendar based on pre_total_stock_daily_feature.
     """
     with dict_cursor(conn) as cur:
         cur.execute(
@@ -218,8 +218,8 @@ def get_nth_trading_date_after(
     holding_days: int,
 ) -> Optional[date]:
     """
-    base_date 이후 N번째 거래일 반환.
-    holding_days=10이면 base_date보다 큰 거래일 중 10번째.
+    Return the Nth trading day after base_date.
+    If holding_days=10, it is the 10th trading day greater than base_date.
     """
     future_dates = [d for d in trading_dates if d > base_date]
 
@@ -260,10 +260,10 @@ def load_candidates_for_date(
     max_candidates_per_day: int,
 ) -> List[Candidate]:
     """
-    BLOCK_EXCEPTION_BUY v0 후보 조회.
+    Query BLOCK_EXCEPTION_BUY v0 candidates.
 
-    종목명은 현재 pre_total_stock_daily_feature 실제 컬럼에 없을 수 있으므로 NULL 처리.
-    필요 시 stock_master 조인으로 보강 가능.
+    The stock name may not exist in the current pre_total_stock_daily_feature actual columns, so it is treated as NULL.
+    It can be enriched with a stock_master join if needed.
     """
     with dict_cursor(conn) as cur:
         cur.execute(
@@ -382,15 +382,15 @@ def build_trades(
     position_size: Decimal,
 ) -> List[Trade]:
     """
-    독립 미니 백테스트.
+    Standalone mini backtest.
 
-    설계:
-    - BLOCK 날짜에 조건 통과 후보를 매수했다고 가정
-    - 진입가: signal_date close_price
-    - 청산가: holding_days 뒤 close_price
-    - 동일 ticker 중복 포지션은 허용하지 않음
-    - 동시 보유 최대 개수 제한
-    - DB write 없음
+    Design:
+    - Assumes candidates that pass the conditions on a BLOCK date were bought
+    - Entry price: signal_date close_price
+    - Exit price: close_price after holding_days
+    - Does not allow duplicate positions for the same ticker
+    - Limits the maximum number of concurrent holdings
+    - No DB write
     """
     trades: List[Trade] = []
     open_positions: List[Trade] = []
@@ -398,7 +398,7 @@ def build_trades(
     print_section("BLOCK_EXCEPTION_BUY Trade Build")
 
     for idx, signal_date in enumerate(block_dates, start=1):
-        # 이미 청산일이 지난 포지션은 open_positions에서 제거
+        # Remove positions whose exit date has already passed from open_positions
         open_positions = [
             t for t in open_positions
             if t.sell_date > signal_date
@@ -429,7 +429,7 @@ def build_trades(
             )
             continue
 
-        # 현재 열려 있는 ticker는 중복 진입 방지
+        # Prevent duplicate entry for currently open tickers
         open_tickers = {t.ticker_code for t in open_positions}
 
         selected: List[Candidate] = []
@@ -509,12 +509,12 @@ def build_daily_equity_curve(
     trades: List[Trade],
 ) -> pd.DataFrame:
     """
-    청산일에 weighted_return을 반영하는 단순 equity curve.
-    진입~보유 중 mark-to-market은 하지 않는다.
+    A simple equity curve that reflects weighted_return on the exit date.
+    No mark-to-market is done during the entry-to-holding period.
 
-    목적:
-    - BLOCK_EXCEPTION_BUY v0 조건 자체의 실현 손익 기여도 확인
-    - 기존 backtest 엔진에 섞기 전 독립 검증
+    Purpose:
+    - Confirm the realized-PnL contribution of the BLOCK_EXCEPTION_BUY v0 conditions themselves
+    - Standalone validation before mixing into the existing backtest engine
     """
     date_range = [
         d for d in trading_dates
@@ -741,7 +741,7 @@ def parse_args():
 
 
 def main() -> None:
-    """CLI 인자를 파싱해 block 예외 매수 후보 백테스트를 수행한다."""
+    """Parses the CLI arguments and performs the block exception buy candidate backtest."""
     args = parse_args()
 
     start_date = safe_date(args.start_date)

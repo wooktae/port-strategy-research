@@ -1,4 +1,4 @@
-"""Resolved Config 명시적 주입의 DB 없는 계약 검증."""
+"""DB-free contract verification of explicit Resolved Config injection."""
 
 from __future__ import annotations
 

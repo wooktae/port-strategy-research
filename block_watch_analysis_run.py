@@ -1,7 +1,7 @@
-"""block 이후 watch 후보의 사후 수익률을 계산하고 저장하는 분석 진입점.
+"""Analysis entrypoint that computes and stores the post-hoc returns of watch candidates after a block.
 
-watch 후보와 미래 가격을 DB에서 읽고 n일 후 수익률 컬럼을 update한다.
-DB update가 포함되므로 문서화 작업에서는 직접 실행하지 않는다.
+It reads watch candidates and future prices from the DB and updates the n-day-forward return columns.
+Because it includes a DB update, do not run it directly in documentation work.
 """
 
 from __future__ import annotations
@@ -73,12 +73,12 @@ def fetch_watch_candidates(conn, daily_run_id: int | None = None) -> list[dict]:
 
 def fetch_future_prices(conn, ticker_code: str, data_date) -> dict[int, Decimal]:
     """
-    data_date 이후 해당 종목의 1/3/5/10번째 거래일 종가를 조회한다.
+    Query the closing prices on the 1st/3rd/5th/10th trading days after data_date for the given stock.
 
-    예:
+    Example:
     data_date = 2026-05-19
-    이후 첫 거래일 = 2026-05-20 데이터가 있으면 return_1d 계산
-    아직 없으면 NULL 유지
+    First trading day after = 2026-05-20; if that data exists, return_1d is computed
+    If not yet available, it stays NULL
     """
 
     sql = """
@@ -192,7 +192,7 @@ def _fmt_pct(value: Any) -> str:
 
 
 def run_block_watch_analysis(daily_run_id: int | None = None):
-    """watch 후보의 미래 수익률을 계산해 저장하고 요약을 출력한다."""
+    """Computes and stores the future returns of watch candidates and prints a summary."""
     conn = get_conn()
 
     try:

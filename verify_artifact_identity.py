@@ -1,4 +1,4 @@
-"""Research Source SHA·Image Digest Runtime Identity 계약 검증."""
+"""Verifies the Research Source SHA / Image Digest Runtime Identity contract."""
 
 from __future__ import annotations
 

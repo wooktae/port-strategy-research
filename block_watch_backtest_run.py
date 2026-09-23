@@ -1,7 +1,7 @@
-"""block 구간 이후 watch 후보를 분석하는 독립형 백테스트성 스크립트.
+"""Standalone backtest-style script that analyzes watch candidates after a block period.
 
-기존 backtest daily 결과와 종목 feature를 읽어 block/watch 후보와 forward return을 계산한다.
-주로 연구/진단용이며 실제 DB 연결이 발생하므로 실행 전 run_id와 대상 DB를 확인해야 한다.
+It reads the existing backtest daily results and stock features to compute block/watch candidates and forward returns.
+It is mainly for research/diagnostics, and because an actual DB connection occurs, the run_id and target DB must be confirmed before execution.
 """
 
 from __future__ import annotations
@@ -175,11 +175,11 @@ def print_section(title: str) -> None:
 
 def get_latest_backtest_run_id(conn) -> str:
     """
-    최신 백테스트 run_id 조회.
+    Query the latest backtest run_id.
 
-    실제 DDL 기준:
+    Based on the actual DDL:
     - strategy_backtest_run PK: run_id
-    - 최신 기준: started_at DESC
+    - latest basis: started_at DESC
     - run_mode: BACKTEST
     """
     with dict_cursor(conn) as cur:
@@ -202,8 +202,8 @@ def get_latest_backtest_run_id(conn) -> str:
 
 def get_latest_backtest_data_date(conn, run_id: str) -> Optional[date]:
     """
-    최신 backtest_daily date 조회.
-    --end-date 미지정 시 이 날짜를 분석 종료일로 사용.
+    Query the latest backtest_daily date.
+    When --end-date is not specified, this date is used as the analysis end date.
     """
     with dict_cursor(conn) as cur:
         cur.execute(
@@ -251,12 +251,12 @@ def load_block_dates_from_backtest_daily(
     limit_days: Optional[int],
 ) -> Tuple[str, List[BlockDate], int, date]:
     """
-    기존 backtest 결과에서 market_signal = BLOCK 날짜만 추출한다.
+    Extract only the dates with market_signal = BLOCK from the existing backtest results.
 
-    중요:
-    - read-only select만 수행
-    - 기존 backtest_research_run 결과와 분리
-    - strategy_daily_signal / strategy_execution_order / trade_log write 없음
+    Important:
+    - Performs read-only select only
+    - Separated from the existing backtest_research_run results
+    - No strategy_daily_signal / strategy_execution_order / trade_log write
     """
     run_id = get_latest_backtest_run_id(conn)
 
@@ -312,8 +312,8 @@ def summarize_block_streaks(
     end_date: date,
 ) -> None:
     """
-    전체 backtest 거래일 캘린더 기준으로 BLOCK 연속 구간을 요약한다.
-    calendar day 기준이 아니라 strategy_backtest_daily의 거래일 순서 기준.
+    Summarize consecutive BLOCK streaks over the full backtest trading-day calendar.
+    Based on the trading-day order in strategy_backtest_daily, not on calendar days.
     """
     rows = load_backtest_days(
         conn=conn,
@@ -370,12 +370,12 @@ def summarize_block_streaks(
 
 def load_stock_features_for_date(conn, signal_date: date) -> List[Dict[str, Any]]:
     """
-    BLOCK 날짜의 전체 종목 feature 조회.
+    Query all stock features for the BLOCK date.
 
-    주의:
-    - 현재 DB의 pre_total_stock_daily_feature 실제 컬럼에는 company_name/stock_name이 없을 수 있음.
-    - 분석 핵심은 ticker_code 기준이므로 종목명은 NULL AS stock_name으로 처리.
-    - 나중에 stock_master 조인 가능하면 종목명 보강 가능.
+    Note:
+    - The current DB's pre_total_stock_daily_feature actual columns may not have company_name/stock_name.
+    - Since the analysis is based on ticker_code, the stock name is handled as NULL AS stock_name.
+    - The stock name can be enriched later if a stock_master join becomes possible.
     """
     with dict_cursor(conn) as cur:
         cur.execute(
@@ -406,12 +406,12 @@ def evaluate_watch(
     criteria: WatchCriteria,
 ) -> Tuple[bool, str, Dict[str, Any]]:
     """
-    common_block_watch.evaluate_block_watch_candidate() 실제 시그니처 기준.
+    Based on the actual signature of common_block_watch.evaluate_block_watch_candidate().
 
-    기본 Watch 조건은 common_block_watch 재사용.
-    추가 실험 조건인 min_intraday_range는 이 분석 파일에서만 별도로 적용한다.
+    The base Watch conditions reuse common_block_watch.
+    The additional experimental condition min_intraday_range is applied separately only in this analysis file.
 
-    이 함수는 매수/주문/신호 저장을 하지 않고 관찰 여부만 반환한다.
+    This function does not perform buy/order/signal persistence; it only returns whether to watch.
     """
     decision = evaluate_block_watch_candidate(
         market_signal="BLOCK",
@@ -425,8 +425,8 @@ def evaluate_watch(
     if not decision.is_watch:
         return decision.is_watch, decision.watch_reason, decision.watch_detail
 
-    # 분석 전용 추가 조건: intraday_range 하한
-    # common_block_watch에는 max만 있으므로 min은 여기서만 적용한다.
+    # Analysis-only additional condition: intraday_range lower bound
+    # Since common_block_watch has only max, min is applied only here.
     if criteria.min_intraday_range is not None:
         intraday_range = to_decimal(row.get("intraday_range"))
 
@@ -517,8 +517,8 @@ def load_future_prices(
     max_days: int = 10,
 ) -> List[Dict[str, Any]]:
     """
-    같은 ticker_code 기준 signal_date 이후 거래일 종가 조회.
-    1번째/3번째/5번째/10번째 거래일 수익률 계산에 사용.
+    Query the closing prices on trading days after signal_date for the same ticker_code.
+    Used to compute the 1st/3rd/5th/10th trading-day returns.
     """
     with dict_cursor(conn) as cur:
         cur.execute(
@@ -1002,7 +1002,7 @@ def parse_args():
 
 
 def main() -> None:
-    """CLI 인자를 파싱해 block watch 후보 분석을 수행한다."""
+    """Parses the CLI arguments and performs the block watch candidate analysis."""
     args = parse_args()
 
     start_date = safe_date(args.start_date)

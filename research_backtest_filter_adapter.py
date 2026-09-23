@@ -16,7 +16,7 @@ def filter_buy_candidates(
     *,
     filter_config: dict[str, Any],
 ):
-    """명시적으로 받은 Filter Config로 공통 후보 필터를 호출한다."""
+    """Calls the common candidate filter using the explicitly provided Filter Config."""
     common_decision = CommonMarketDecision(
         market_signal=decision.signal_type,
         base_exposure=float(decision.base_exposure),

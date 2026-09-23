@@ -1,7 +1,7 @@
-"""일자별 매수/매도 텍스트 리포트를 생성하는 모듈.
+"""Module that generates the per-date buy/sell text report.
 
-일별 성과, 보유 snapshot, 신규 매수, 매도 로그를 조합해 txt 파일로 출력한다.
-실행 시 DB 조회와 로컬 파일 쓰기가 발생한다.
+It combines daily performance, holdings snapshot, new buys, and sell logs and writes them to a txt file.
+Running it performs DB queries and local file writes.
 """
 
 from datetime import datetime
@@ -38,7 +38,7 @@ def _write_section(f, title: str):
 
 
 def generate_buy_sell_report(run_id: str, output_file: str = "02_일자별매매리포트.txt"):
-    """단일 run_id의 일자별 매매 리포트를 지정 파일로 생성한다."""
+    """Generate the per-date trading report for a single run_id into the given file."""
     conn = get_conn()
     cur = conn.cursor()
 
@@ -53,7 +53,7 @@ def generate_buy_sell_report(run_id: str, output_file: str = "02_일자별매매
 
         with open(output_file, "w", encoding="utf-8") as f:
             # --------------------------------------------------
-            # 기본 정보
+            # Basic information
             # --------------------------------------------------
             f.write(f"실행일자: {datetime.now().strftime('%Y-%m-%d')}\n")
             f.write(f"엔진: {run_summary['strategy_version']}\n")
@@ -66,7 +66,7 @@ def generate_buy_sell_report(run_id: str, output_file: str = "02_일자별매매
             f.write("\n")
 
             # --------------------------------------------------
-            # 최종 결과
+            # Final results
             # --------------------------------------------------
             _write_section(f, "최종 결과")
             f.write(f"누적 이익: {pct_str(run_summary['total_return'])}\n")
@@ -77,7 +77,7 @@ def generate_buy_sell_report(run_id: str, output_file: str = "02_일자별매매
             f.write("\n")
 
             # --------------------------------------------------
-            # 일자별 매매
+            # Per-date trading
             # --------------------------------------------------
             _write_section(f, "일자별 매매")
             f.write("\n")
@@ -93,7 +93,7 @@ def generate_buy_sell_report(run_id: str, output_file: str = "02_일자별매매
                 )
 
                 # --------------------------------------------------
-                # 1. 보유 종목
+                # 1. Holdings
                 # --------------------------------------------------
                 holdings = get_holdings_for_date(cur, run_id, d)
 
@@ -122,7 +122,7 @@ def generate_buy_sell_report(run_id: str, output_file: str = "02_일자별매매
                             )
 
                 # --------------------------------------------------
-                # 2. 매수
+                # 2. Buys
                 # --------------------------------------------------
                 buys = get_buys_for_date(cur, run_id, d)
 
@@ -139,7 +139,7 @@ def generate_buy_sell_report(run_id: str, output_file: str = "02_일자별매매
                             f.write(f"   → {line}\n")
 
                 # --------------------------------------------------
-                # 3. 매도
+                # 3. Sells
                 # --------------------------------------------------
                 sells = get_sells_for_date(cur, run_id, d)
 

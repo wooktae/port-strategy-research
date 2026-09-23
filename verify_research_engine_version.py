@@ -1,4 +1,4 @@
-"""Research Engine Version 분리 계약 검증."""
+"""Verifies the Research Engine Version separation contract."""
 
 from __future__ import annotations
 

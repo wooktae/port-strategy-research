@@ -1,10 +1,10 @@
-"""AWS Batch용 BACKTEST_REPORT wrapper.
+"""BACKTEST_REPORT wrapper for AWS Batch.
 
-역할:
-- Job Definition에서 주입된 RESEARCH_APP_SECRET_JSON을 INTEREST_DB_* 환경변수로 매핑한다.
-- Batch 실행 시 리포트 출력 경로 기본값을 /tmp/portfolio-reports 로 지정한다.
-- REPORT_S3_BUCKET 환경변수가 있으면 생성된 리포트 txt 파일을 S3로 업로드한다.
-- 실제 report entrypoint는 port_strategy_research.backtest_report_run 으로 위임한다.
+Role:
+- Maps RESEARCH_APP_SECRET_JSON injected from the Job Definition to INTEREST_DB_* environment variables.
+- Sets the default report output path to /tmp/portfolio-reports when running under Batch.
+- Uploads the generated report txt files to S3 when the REPORT_S3_BUCKET environment variable is set.
+- Delegates the actual report entrypoint to port_strategy_research.backtest_report_run.
 """
 
 import json

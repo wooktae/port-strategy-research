@@ -1,4 +1,4 @@
-"""백테스트 입력 Feature를 DB에서 읽어오는 Loader 모듈."""
+"""Loader module that reads the backtest input Features from the DB."""
 
 import pandas as pd
 
@@ -9,7 +9,7 @@ def get_dates(
     backtest_start_date,
     backtest_end_date=None,
 ):
-    """명시적으로 전달받은 시작일·종료일 범위의 거래일을 조회한다."""
+    """Queries trading days within the explicitly provided start-date/end-date range."""
     if backtest_end_date is None:
         sql = """
         SELECT date
@@ -74,7 +74,7 @@ def get_stocks(conn, date):
 
 
 def get_price(conn, price_date):
-    """해당 일자에 실제 존재하는 Price Row만 반환하며 임의 보간하지 않는다."""
+    """Returns only Price Rows that actually exist on the given date, without any imputation."""
     sql = """
         SELECT
             ticker_code,

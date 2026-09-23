@@ -1,8 +1,8 @@
-"""완료된 백테스트 거래를 `strategy_trade_log`에 저장한다.
+"""Saves completed backtest trades to `strategy_trade_log`.
 
-Trade는 전체 Config JSON을 복제하지 않는다.
-`run_id`로 `strategy_backtest_run.config_snapshot`에 연결하고,
-조회 편의를 위해 Strategy Config Version과 Config Hash만 비정규화한다.
+A Trade does not duplicate the entire Config JSON.
+It links to `strategy_backtest_run.config_snapshot` via `run_id`,
+and denormalizes only the Strategy Config Version and Config Hash for query convenience.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ def insert_trade_log(
     strategy_config_version: str,
     config_hash: str,
 ):
-    """단일 거래를 Run의 Canonical Config Snapshot에 연결해 저장한다."""
+    """Saves a single trade, linking it to the Run's Canonical Config Snapshot."""
     if not strategy_config_version:
         raise ValueError("TRADE_STRATEGY_CONFIG_VERSION_REQUIRED")
 

@@ -1,7 +1,8 @@
-"""백테스트 분석 결과를 바탕으로 개선 추천 텍스트 리포트를 생성하는 모듈.
+"""Module that generates an improvement-recommendation text report from backtest analysis results.
 
-확장 분석 테이블과 config threshold를 읽어 리스크/진입/청산/섹터 관점의 진단 문구를 만든다.
-실행 시 DB 조회와 로컬 파일 쓰기가 발생한다.
+It reads the extended analysis tables and config thresholds to build diagnostic statements
+from risk, entry, exit, and sector perspectives.
+Running it performs DB queries and local file writes.
 """
 
 from datetime import datetime
@@ -60,9 +61,9 @@ def _candidate_label(candidate_type: str) -> str:
 
 def _entry_bucket_label(metric_name: str, bucket_label: str) -> str:
     """
-    분석 테이블의 bucket_label은 이미 사람이 읽을 수 있는 형태인 경우가 많아서
-    기본적으로는 원문 유지.
-    단, true/false류만 보기 좋게 정리.
+    The bucket_label from the analysis table is often already in a human-readable form,
+    so by default the original value is kept.
+    Only true/false-style values are tidied up for presentation.
     """
     raw = str(bucket_label)
 
@@ -163,7 +164,7 @@ def build_recommendations(
     mbweak_candidate_rows,
     mbweak_other_rows,
 ):
-    """분석 row와 threshold snapshot을 조합해 추천 문구 목록을 만든다."""
+    """Combine analysis rows and the threshold snapshot to build the list of recommendation statements."""
     total_trades = int(run_summary.get("trade_count", 0) or 0)
     sharpe = to_float(run_summary.get("sharpe"), 0.0)
     mdd = to_float(run_summary.get("mdd"), 0.0)
@@ -173,7 +174,7 @@ def build_recommendations(
     actions: list[str] = []
 
     # --------------------------------------------------
-    # 1. 상위 성과 요약
+    # 1. Top-level performance summary
     # --------------------------------------------------
     if sharpe >= REC_CFG["sharpe_excellent"]:
         positives.append(
@@ -198,7 +199,7 @@ def build_recommendations(
         )
 
     # --------------------------------------------------
-    # 2. exit reason 중심 진단
+    # 2. exit reason-centered diagnosis
     # --------------------------------------------------
     mb_early_flat = reason_stats.get("market_block_early_flat")
     mb_late_flat = reason_stats.get("market_block_late_flat")
@@ -308,7 +309,7 @@ def build_recommendations(
         )
 
     # --------------------------------------------------
-    # 3. holding 구간 진단
+    # 3. holding-period diagnosis
     # --------------------------------------------------
     bad_early_holding = []
     good_late_holding = []
@@ -343,7 +344,7 @@ def build_recommendations(
         )
 
     # --------------------------------------------------
-    # 4. market_block bad 상세
+    # 4. market_block bad details
     # --------------------------------------------------
     bad_mb_buckets = []
     for holding_days, stat in sorted(mbweak_stats.items()):
@@ -373,7 +374,7 @@ def build_recommendations(
         )    
 
     # --------------------------------------------------
-    # 4-A. market_block bad bucket / salvage 후보 진단
+    # 4-A. market_block bad bucket / salvage candidate diagnosis
     # --------------------------------------------------
     quality_cnt = 0
     quality_ret_sum = 0.0
@@ -471,7 +472,7 @@ def build_recommendations(
         )
 
     # --------------------------------------------------
-    # 4-B. market_block_weak_other combo 상세 진단
+    # 4-B. market_block_weak_other combo detailed diagnosis
     # --------------------------------------------------
     weak_combo_map: dict[str, dict] = {}
     weak_holding_combo_map: dict[tuple[str, str], dict] = {}
@@ -659,7 +660,7 @@ def build_recommendations(
         )
 
     # --------------------------------------------------
-    # 4-1. exit trigger overlap 진단
+    # 4-1. exit trigger overlap diagnosis
     # --------------------------------------------------
     exit_trigger_map: dict[str, list[dict]] = defaultdict(list)
 
@@ -712,7 +713,7 @@ def build_recommendations(
             )
 
     # --------------------------------------------------
-    # 5. entry analysis 진단
+    # 5. entry analysis diagnosis
     # --------------------------------------------------
     def add_metric_comparison(metric_name: str):
         human_name = label_entry_metric(metric_name)
@@ -818,7 +819,7 @@ def build_recommendations(
             )
 
     # --------------------------------------------------
-    # 5-1. entry day follow-through 진단
+    # 5-1. entry day follow-through diagnosis
     # --------------------------------------------------
     entry_day_map: dict[str, list[dict]] = defaultdict(list)
 
@@ -878,7 +879,7 @@ def build_recommendations(
             )
 
     # --------------------------------------------------
-    # 6. signal + holding + exit_reason 진단
+    # 6. signal + holding + exit_reason diagnosis
     # --------------------------------------------------
     for signal, rows in signal_grouped.items():
         heavy_negative = [
@@ -895,7 +896,7 @@ def build_recommendations(
             )
 
     # --------------------------------------------------
-    # 7. ticker analysis 진단
+    # 7. ticker analysis diagnosis
     # --------------------------------------------------
     bad_tickers = _top_bad_tickers(ticker_rows, limit=5)
     if bad_tickers:
@@ -904,7 +905,7 @@ def build_recommendations(
         )
 
     # --------------------------------------------------
-    # 7-1. sector 분석
+    # 7-1. sector analysis
     # --------------------------------------------------
     bad_sector_rows = []
     good_sector_rows = []
@@ -977,7 +978,7 @@ def build_recommendations(
         )
 
     # --------------------------------------------------
-    # 8. run input 기반 액션 정리
+    # 8. run input-based action summary
     # --------------------------------------------------
     flow_min = run_inputs.get("flow_min")
     vol_penalty_multiplier = run_inputs.get("vol_penalty_multiplier")
@@ -1015,7 +1016,7 @@ def generate_recommendation_report(
     run_id: str,
     output_file: str = "04_추천리포트.txt",
 ):
-    """단일 run_id의 추천/진단 리포트를 지정 파일로 생성한다."""
+    """Generate the recommendation/diagnosis report for a single run_id into the given file."""
     conn = get_conn()
     cur = conn.cursor()
 

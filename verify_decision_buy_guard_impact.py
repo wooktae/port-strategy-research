@@ -1,4 +1,4 @@
-"""Decision BUY Guard가 Research Config 전환의 영향을 받는지 DB 없이 검증한다."""
+"""Verifies, without a DB, whether the Decision BUY Guard is affected by Research Config changes."""
 
 from __future__ import annotations
 

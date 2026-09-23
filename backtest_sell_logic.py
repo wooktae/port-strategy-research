@@ -1,4 +1,4 @@
-"""공통 매도 판단 로직을 명시적 SELL Config로 연결한다."""
+"""Wires the common sell decision logic to an explicit SELL Config."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def evaluate_sell(
     *,
     sell_config: dict[str, Any],
 ):
-    """전달받은 SELL Config로 공통 매도 판단을 수행한다."""
+    """Performs the common sell decision using the provided SELL Config."""
     return common_evaluate_backtest_sell(
         pos=pos,
         feature=feature,

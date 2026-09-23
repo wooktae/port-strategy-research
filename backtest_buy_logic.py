@@ -1,4 +1,4 @@
-"""백테스트 신규 매수 처리 로직 모듈."""
+"""Module for the backtest new-buy processing logic."""
 
 from __future__ import annotations
 
@@ -140,7 +140,7 @@ def process_buy(
     strategy_config_version: str,
     config_hash: str,
 ):
-    """명시적으로 전달된 실행 Config로 신규 매수를 처리한다."""
+    """Processes new buys using the explicitly provided execution Config."""
     current_position_count = len(positions)
     available_slots = max(
         0,

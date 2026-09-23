@@ -1,4 +1,4 @@
-"""Strategy Profile Validator의 DB 없는 계약 검증."""
+"""DB-free contract verification of the Strategy Profile Validator."""
 
 from __future__ import annotations
 

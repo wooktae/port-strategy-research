@@ -1,8 +1,8 @@
-"""백테스트 리포트 생성에 필요한 DB 조회 helper 모듈.
+"""DB query helper module needed to generate backtest reports.
 
-run 메타데이터, 일별 성과, 일별 포지션 snapshot, 거래 로그, 분석 테이블을 읽는다.
-DB 연결은 `INTEREST_DB_*` 환경변수를 사용하는 `get_db_config()`를 통해 구성하며,
-이 모듈은 조회 helper 중심이지만 실행 시 실제 DB 접속이 발생한다.
+It reads run metadata, daily performance, daily position snapshots, trade logs, and analysis tables.
+The DB connection is configured through `get_db_config()`, which uses the `INTEREST_DB_*` environment variables,
+and although this module is query-helper-centered, running it establishes an actual DB connection.
 """
 
 import psycopg2
@@ -13,7 +13,7 @@ from port_strategy_research.db_config import get_db_config
 
 
 def get_conn():
-    """리포트 조회용 PostgreSQL connection을 생성한다."""
+    """Create a PostgreSQL connection for report queries."""
     return psycopg2.connect(**get_db_config())
 
 
@@ -29,7 +29,7 @@ def to_float(v: Any, default: Optional[float] = 0.0) -> Optional[float]:
 
 
 def get_latest_run_id(cur) -> Optional[str]:
-    """가장 최근에 완료된 운영 BACKTEST run_id를 조회한다."""
+    """Query the most recently completed operational BACKTEST run_id."""
     cur.execute(
         """
         SELECT run_id
@@ -45,7 +45,7 @@ def get_latest_run_id(cur) -> Optional[str]:
 
 
 def get_run_summary(cur, run_id: str) -> dict:
-    """리포트 상단에 필요한 backtest run 요약 정보를 조회한다."""
+    """Query the backtest run summary information needed at the top of the report."""
     cur.execute(
         """
         SELECT
@@ -255,7 +255,7 @@ def get_price_on_date(cur, ticker_code: str, price_date) -> Optional[float]:
     return to_float(row[0], None) if row else None
 
 def get_holdings_for_date(cur, run_id: str, d):
-    """일자별 보유 현황을 일별 포지션 snapshot 테이블에서 조회한다."""
+    """Query per-date holdings from the daily position snapshot table."""
     cur.execute(
         """
         SELECT
@@ -273,7 +273,7 @@ def get_holdings_for_date(cur, run_id: str, d):
     return cur.fetchall()
 
 def load_trade_details(cur, run_id: str):
-    """완료 거래 상세 리포트에 사용할 거래 로그를 조회한다."""
+    """Query the trade log used for the completed-trade detail report."""
     cur.execute(
         """
         SELECT
@@ -301,7 +301,7 @@ def load_trade_details(cur, run_id: str):
 
 
 def get_buys_for_date(cur, run_id: str, d):
-    """해당 일자에 신규 진입한 종목 정보를 일별 포지션 snapshot에서 조회한다."""
+    """Query info on newly entered stocks for the given date from the daily position snapshot."""
     cur.execute(
         """
         SELECT

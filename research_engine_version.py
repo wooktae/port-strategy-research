@@ -1,4 +1,4 @@
-"""Research Backtest Engine Version의 단일 기준 Source."""
+"""Single source of truth for the Research Backtest Engine Version."""
 
 from __future__ import annotations
 
