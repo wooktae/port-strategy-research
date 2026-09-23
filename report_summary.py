@@ -28,13 +28,23 @@ from port_strategy_research.report_formatter import (
     label_exit_reason,
     label_mbweak_combo,
 )
+from port_strategy_research.report_locale import t, get_report_locale
+
+
+_CANDIDATE_LABEL_KO = {
+    "quality_drop": "질 저하형",
+    "weak_other": "기타 약세형",
+}
+
+_CANDIDATE_LABEL_EN = {
+    "quality_drop": "Quality Deterioration",
+    "weak_other": "Other Weakness",
+}
 
 
 def _candidate_label(candidate_type: str) -> str:
-    return {
-        "quality_drop": "질 저하형",
-        "weak_other": "기타 약세형",
-    }.get(candidate_type, candidate_type)
+    label_map = _CANDIDATE_LABEL_KO if get_report_locale() == "ko" else _CANDIDATE_LABEL_EN
+    return label_map.get(candidate_type, candidate_type)
 
 
 def _write_section_title(f, title: str):
@@ -43,7 +53,7 @@ def _write_section_title(f, title: str):
 
 
 def _write_empty(f):
-    f.write("- 없음\n")
+    f.write(t("- None\n", "- 없음\n"))
 
 
 def generate_summary_report(run_id: str, output_file: str = "01_요약리포트.txt"):
@@ -62,72 +72,125 @@ def generate_summary_report(run_id: str, output_file: str = "01_요약리포트.
         mbweak_other_rows = load_mbweak_other_rows(cur, run_id)
 
         with open(output_file, "w", encoding="utf-8") as f:
-            f.write(f"실행일자: {datetime.now().strftime('%Y-%m-%d')}\n")
-            f.write(f"전략명: {run_summary['strategy_name']}\n")
-            f.write(f"엔진: {run_summary['strategy_version']}\n")
-            f.write(f"실행 ID: {run_id}\n")
+            f.write(t(
+                f"Run Date: {datetime.now().strftime('%Y-%m-%d')}\n",
+                f"실행일자: {datetime.now().strftime('%Y-%m-%d')}\n",
+            ))
+            f.write(t(
+                f"Strategy Name: {run_summary['strategy_name']}\n",
+                f"전략명: {run_summary['strategy_name']}\n",
+            ))
+            f.write(t(
+                f"Engine: {run_summary['strategy_version']}\n",
+                f"엔진: {run_summary['strategy_version']}\n",
+            ))
+            f.write(t(
+                f"Run ID: {run_id}\n",
+                f"실행 ID: {run_id}\n",
+            ))
             f.write(
-                f"백테스트 구간: {run_summary['backtest_start_date']} ~ "
-                f"{run_summary['backtest_end_date']}\n\n"
+                t(
+                    f"Backtest Period: {run_summary['backtest_start_date']} ~ "
+                    f"{run_summary['backtest_end_date']}\n\n",
+                    f"백테스트 구간: {run_summary['backtest_start_date']} ~ "
+                    f"{run_summary['backtest_end_date']}\n\n",
+                )
             )
 
             # --------------------------------------------------
             # Final results
             # --------------------------------------------------
-            _write_section_title(f, "최종 결과")
-            f.write(f"누적 이익: {pct_str(run_summary['total_return'])}\n")
-            f.write(f"최대 낙폭: {pct_str(run_summary['mdd'], signed=True)}\n")
-            f.write(f"샤프 지수: {to_float(run_summary['sharpe'], 0.0):.2f}\n")
-            f.write(f"총 거래수: {run_summary['trade_count']}\n")
-            f.write(f"실험 입력값: {format_run_inputs(run_inputs)}\n\n")
+            _write_section_title(f, t("Final Results", "최종 결과"))
+            f.write(t(
+                f"Cumulative Return: {pct_str(run_summary['total_return'])}\n",
+                f"누적 이익: {pct_str(run_summary['total_return'])}\n",
+            ))
+            f.write(t(
+                f"Max Drawdown: {pct_str(run_summary['mdd'], signed=True)}\n",
+                f"최대 낙폭: {pct_str(run_summary['mdd'], signed=True)}\n",
+            ))
+            f.write(t(
+                f"Sharpe Ratio: {to_float(run_summary['sharpe'], 0.0):.2f}\n",
+                f"샤프 지수: {to_float(run_summary['sharpe'], 0.0):.2f}\n",
+            ))
+            f.write(t(
+                f"Total Trades: {run_summary['trade_count']}\n",
+                f"총 거래수: {run_summary['trade_count']}\n",
+            ))
+            f.write(t(
+                f"Run Inputs: {format_run_inputs(run_inputs)}\n\n",
+                f"실험 입력값: {format_run_inputs(run_inputs)}\n\n",
+            ))
 
             # --------------------------------------------------
             # Exit reason statistics
             # --------------------------------------------------
-            _write_section_title(f, "청산 사유 통계")
+            _write_section_title(f, t("Exit Reason Statistics", "청산 사유 통계"))
             for reason, stat in sorted(reason_stats.items()):
                 f.write(
-                    f"- {label_exit_reason(reason)}: "
-                    f"{stat['trades']}건, "
-                    f"평균 수익률 {pct_str(stat['avg_return'], signed=True)}, "
-                    f"승률 {stat['win_rate'] * 100:.1f}%\n"
+                    t(
+                        f"- {label_exit_reason(reason)}: "
+                        f"{stat['trades']} trades, "
+                        f"avg return {pct_str(stat['avg_return'], signed=True)}, "
+                        f"win rate {stat['win_rate'] * 100:.1f}%\n",
+                        f"- {label_exit_reason(reason)}: "
+                        f"{stat['trades']}건, "
+                        f"평균 수익률 {pct_str(stat['avg_return'], signed=True)}, "
+                        f"승률 {stat['win_rate'] * 100:.1f}%\n",
+                    )
                 )
 
             # --------------------------------------------------
             # Holding-period statistics
             # --------------------------------------------------
             f.write("\n")
-            _write_section_title(f, "보유 기간 통계")
+            _write_section_title(f, t("Holding Period Statistics", "보유 기간 통계"))
             for holding_days, stat in sorted(holding_stats.items()):
                 f.write(
-                    f"- {holding_days}일 보유: "
-                    f"{stat['trades']}건, "
-                    f"평균 수익률 {pct_str(stat['avg_return'], signed=True)}, "
-                    f"승률 {stat['win_rate'] * 100:.1f}%\n"
+                    t(
+                        f"- {holding_days}-day holding: "
+                        f"{stat['trades']} trades, "
+                        f"avg return {pct_str(stat['avg_return'], signed=True)}, "
+                        f"win rate {stat['win_rate'] * 100:.1f}%\n",
+                        f"- {holding_days}일 보유: "
+                        f"{stat['trades']}건, "
+                        f"평균 수익률 {pct_str(stat['avg_return'], signed=True)}, "
+                        f"승률 {stat['win_rate'] * 100:.1f}%\n",
+                    )
                 )
 
             # --------------------------------------------------
             # BLOCK loss group details
             # --------------------------------------------------
             f.write("\n")
-            _write_section_title(f, "BLOCK 손실군 상세 (질 저하형 + 기타 약세형)")
+            _write_section_title(f, t(
+                "BLOCK Loss Group Details (Quality Deterioration + Other Weakness)",
+                "BLOCK 손실군 상세 (질 저하형 + 기타 약세형)",
+            ))
             if not mbweak_stats:
                 _write_empty(f)
             else:
                 for holding_days, stat in sorted(mbweak_stats.items()):
                     f.write(
-                        f"- {holding_days}일 보유: "
-                        f"{stat['trades']}건, "
-                        f"평균 수익률 {pct_str(stat['avg_return'], signed=True)}, "
-                        f"평균 수급 점수 {to_float(stat['avg_flow'], 0.0):.3f}, "
-                        f"평균 종합 점수 {to_float(stat['avg_final'], 0.0):.3f}\n"
+                        t(
+                            f"- {holding_days}-day holding: "
+                            f"{stat['trades']} trades, "
+                            f"avg return {pct_str(stat['avg_return'], signed=True)}, "
+                            f"avg flow score {to_float(stat['avg_flow'], 0.0):.3f}, "
+                            f"avg final score {to_float(stat['avg_final'], 0.0):.3f}\n",
+                            f"- {holding_days}일 보유: "
+                            f"{stat['trades']}건, "
+                            f"평균 수익률 {pct_str(stat['avg_return'], signed=True)}, "
+                            f"평균 수급 점수 {to_float(stat['avg_flow'], 0.0):.3f}, "
+                            f"평균 종합 점수 {to_float(stat['avg_final'], 0.0):.3f}\n",
+                        )
                     )
 
             # --------------------------------------------------
             # BLOCK loss group summary
             # --------------------------------------------------
             f.write("\n")
-            _write_section_title(f, "BLOCK 손실군 요약")
+            _write_section_title(f, t("BLOCK Loss Group Summary", "BLOCK 손실군 요약"))
 
             quality_cnt = 0
             quality_ret_sum = 0.0
@@ -181,22 +244,38 @@ def generate_summary_report(run_id: str, output_file: str = "01_요약리포트.
                 weak_avg = weak_ret_sum / weak_cnt if weak_cnt else 0.0
 
                 f.write(
-                    f"- 질 저하형: "
-                    f"{quality_cnt}건, "
-                    f"평균 수익률 {pct_str(quality_avg, signed=True)}\n"
+                    t(
+                        f"- Quality Deterioration: "
+                        f"{quality_cnt} trades, "
+                        f"avg return {pct_str(quality_avg, signed=True)}\n",
+                        f"- 질 저하형: "
+                        f"{quality_cnt}건, "
+                        f"평균 수익률 {pct_str(quality_avg, signed=True)}\n",
+                    )
                 )
                 f.write(
-                    f"- 기타 약세형: "
-                    f"{weak_cnt}건, "
-                    f"평균 수익률 {pct_str(weak_avg, signed=True)}\n"
+                    t(
+                        f"- Other Weakness: "
+                        f"{weak_cnt} trades, "
+                        f"avg return {pct_str(weak_avg, signed=True)}\n",
+                        f"- 기타 약세형: "
+                        f"{weak_cnt}건, "
+                        f"평균 수익률 {pct_str(weak_avg, signed=True)}\n",
+                    )
                 )
-                f.write(f"- 손실군 전체 거래 수: {total_bad}건\n")
+                f.write(t(
+                    f"- Total loss group trades: {total_bad} trades\n",
+                    f"- 손실군 전체 거래 수: {total_bad}건\n",
+                ))
 
             # --------------------------------------------------
             # Type summary by holding-period bucket
             # --------------------------------------------------
             f.write("\n")
-            _write_section_title(f, "BLOCK 손실군 보유구간별 유형 요약")
+            _write_section_title(f, t(
+                "BLOCK Loss Group Type Summary by Holding Period",
+                "BLOCK 손실군 보유구간별 유형 요약",
+            ))
             has_holding_reason = False
 
             for holding_bucket in MBW_CFG["holding_bucket_labels"]:
@@ -211,9 +290,14 @@ def generate_summary_report(run_id: str, output_file: str = "01_요약리포트.
                     avg_ret = val["ret_sum"] / val["trades"]
 
                     f.write(
-                        f"- {holding_bucket} / {candidate_label}: "
-                        f"{val['trades']}건, "
-                        f"평균 수익률 {pct_str(avg_ret, signed=True)}\n"
+                        t(
+                            f"- {holding_bucket} / {candidate_label}: "
+                            f"{val['trades']} trades, "
+                            f"avg return {pct_str(avg_ret, signed=True)}\n",
+                            f"- {holding_bucket} / {candidate_label}: "
+                            f"{val['trades']}건, "
+                            f"평균 수익률 {pct_str(avg_ret, signed=True)}\n",
+                        )
                     )
 
             if not has_holding_reason:
@@ -223,14 +307,20 @@ def generate_summary_report(run_id: str, output_file: str = "01_요약리포트.
             # Profit bucket summary
             # --------------------------------------------------
             f.write("\n")
-            _write_section_title(f, "BLOCK 손실군 수익구간 요약")
+            _write_section_title(f, t(
+                "BLOCK Loss Group Profit Range Summary",
+                "BLOCK 손실군 수익구간 요약",
+            ))
             has_profit_bucket = False
 
             for bucket in MBW_CFG["profit_bucket_labels"]:
                 cnt = profit_bucket_map.get(bucket, 0)
                 if cnt > 0:
                     has_profit_bucket = True
-                    f.write(f"- {bucket}: {cnt}건\n")
+                    f.write(t(
+                        f"- {bucket}: {cnt} trades\n",
+                        f"- {bucket}: {cnt}건\n",
+                    ))
 
             if not has_profit_bucket:
                 _write_empty(f)
@@ -239,7 +329,10 @@ def generate_summary_report(run_id: str, output_file: str = "01_요약리포트.
             # BLOCK weak_other combo summary
             # --------------------------------------------------
             f.write("\n")
-            _write_section_title(f, "기타 약세형 세부 조합 요약")
+            _write_section_title(f, t(
+                "Other Weakness Detailed Combination Summary",
+                "기타 약세형 세부 조합 요약",
+            ))
 
             weak_combo_map = {}
             weak_holding_combo_map = {}
@@ -316,12 +409,20 @@ def generate_summary_report(run_id: str, output_file: str = "01_요약리포트.
                 avg_holding = val["holding_sum"] / trades
 
                 f.write(
-                    f"- {label_mbweak_combo(combo_type)}: "
-                    f"거래 수 {trades}건, "
-                    f"평균 수익률 {pct_str(avg_ret, signed=True)}, "
-                    f"평균 수급 점수 {avg_flow:.3f}, "
-                    f"평균 종합 점수 {avg_final:.3f}, "
-                    f"평균 보유일 {avg_holding:.2f}일\n"
+                    t(
+                        f"- {label_mbweak_combo(combo_type)}: "
+                        f"{trades} trades, "
+                        f"avg return {pct_str(avg_ret, signed=True)}, "
+                        f"avg flow score {avg_flow:.3f}, "
+                        f"avg final score {avg_final:.3f}, "
+                        f"avg holding {avg_holding:.2f} days\n",
+                        f"- {label_mbweak_combo(combo_type)}: "
+                        f"거래 수 {trades}건, "
+                        f"평균 수익률 {pct_str(avg_ret, signed=True)}, "
+                        f"평균 수급 점수 {avg_flow:.3f}, "
+                        f"평균 종합 점수 {avg_final:.3f}, "
+                        f"평균 보유일 {avg_holding:.2f}일\n",
+                    )
                 )
 
             if not has_weak_combo:
@@ -331,7 +432,10 @@ def generate_summary_report(run_id: str, output_file: str = "01_요약리포트.
             # Detailed combo summary by holding-period bucket
             # --------------------------------------------------
             f.write("\n")
-            _write_section_title(f, "기타 약세형 보유구간별 세부 조합 요약")
+            _write_section_title(f, t(
+                "Other Weakness Detailed Combination Summary by Holding Period",
+                "기타 약세형 보유구간별 세부 조합 요약",
+            ))
 
             has_weak_holding_combo = False
             for holding_bucket in MBW_CFG["holding_bucket_labels"]:
@@ -349,12 +453,20 @@ def generate_summary_report(run_id: str, output_file: str = "01_요약리포트.
                     avg_holding = val["holding_sum"] / trades
 
                     f.write(
-                        f"- {holding_bucket} / {label_mbweak_combo(combo_type)}: "
-                        f"{trades}건, "
-                        f"평균 수익률 {pct_str(avg_ret, signed=True)}, "
-                        f"평균 수급 점수 {avg_flow:.3f}, "
-                        f"평균 종합 점수 {avg_final:.3f}, "
-                        f"평균 보유일 {avg_holding:.2f}일\n"
+                        t(
+                            f"- {holding_bucket} / {label_mbweak_combo(combo_type)}: "
+                            f"{trades} trades, "
+                            f"avg return {pct_str(avg_ret, signed=True)}, "
+                            f"avg flow score {avg_flow:.3f}, "
+                            f"avg final score {avg_final:.3f}, "
+                            f"avg holding {avg_holding:.2f} days\n",
+                            f"- {holding_bucket} / {label_mbweak_combo(combo_type)}: "
+                            f"{trades}건, "
+                            f"평균 수익률 {pct_str(avg_ret, signed=True)}, "
+                            f"평균 수급 점수 {avg_flow:.3f}, "
+                            f"평균 종합 점수 {avg_final:.3f}, "
+                            f"평균 보유일 {avg_holding:.2f}일\n",
+                        )
                     )
 
             if not has_weak_holding_combo:
@@ -364,7 +476,7 @@ def generate_summary_report(run_id: str, output_file: str = "01_요약리포트.
             # BLOCK flat summary
             # --------------------------------------------------
             f.write("\n")
-            _write_section_title(f, "BLOCK 평탄형 요약")
+            _write_section_title(f, t("BLOCK Flat Summary", "BLOCK 평탄형 요약"))
 
             early_flat = reason_stats.get("market_block_early_flat")
             late_flat = reason_stats.get("market_block_late_flat")
@@ -374,24 +486,39 @@ def generate_summary_report(run_id: str, output_file: str = "01_요약리포트.
             else:
                 if early_flat:
                     f.write(
-                        f"- 초기 평탄형: "
-                        f"{early_flat['trades']}건, "
-                        f"평균 수익률 {pct_str(early_flat['avg_return'], signed=True)}, "
-                        f"승률 {early_flat['win_rate'] * 100:.1f}%\n"
+                        t(
+                            f"- Early Flat: "
+                            f"{early_flat['trades']} trades, "
+                            f"avg return {pct_str(early_flat['avg_return'], signed=True)}, "
+                            f"win rate {early_flat['win_rate'] * 100:.1f}%\n",
+                            f"- 초기 평탄형: "
+                            f"{early_flat['trades']}건, "
+                            f"평균 수익률 {pct_str(early_flat['avg_return'], signed=True)}, "
+                            f"승률 {early_flat['win_rate'] * 100:.1f}%\n",
+                        )
                     )
                 if late_flat:
                     f.write(
-                        f"- 후기 평탄형: "
-                        f"{late_flat['trades']}건, "
-                        f"평균 수익률 {pct_str(late_flat['avg_return'], signed=True)}, "
-                        f"승률 {late_flat['win_rate'] * 100:.1f}%\n"
+                        t(
+                            f"- Late Flat: "
+                            f"{late_flat['trades']} trades, "
+                            f"avg return {pct_str(late_flat['avg_return'], signed=True)}, "
+                            f"win rate {late_flat['win_rate'] * 100:.1f}%\n",
+                            f"- 후기 평탄형: "
+                            f"{late_flat['trades']}건, "
+                            f"평균 수익률 {pct_str(late_flat['avg_return'], signed=True)}, "
+                            f"승률 {late_flat['win_rate'] * 100:.1f}%\n",
+                        )
                     )
 
             # --------------------------------------------------
             # BLOCK selective-hold candidate examples
             # --------------------------------------------------
             f.write("\n")
-            _write_section_title(f, "BLOCK 선별 보유 후보 사례")
+            _write_section_title(f, t(
+                "BLOCK Selective-Hold Candidate Examples",
+                "BLOCK 선별 보유 후보 사례",
+            ))
 
             salvage_examples = [
                 row for row in mbweak_candidate_rows
@@ -422,13 +549,22 @@ def generate_summary_report(run_id: str, output_file: str = "01_요약리포트.
                     candidate_label = _candidate_label(candidate_type)
 
                     f.write(
-                        f"- {company_name} ({ticker_code}): "
-                        f"유형 {candidate_label}, "
-                        f"보유일 {holding_period}일, "
-                        f"누적 수익률 {pct_str(to_float(cum_return, 0.0), signed=True)}, "
-                        f"수급 점수 {to_float(flow_value, 0.0):.3f}, "
-                        f"종합 점수 {to_float(final_value, 0.0):.3f}, "
-                        f"수익 구간 {profit_bucket}\n"
+                        t(
+                            f"- {company_name} ({ticker_code}): "
+                            f"type {candidate_label}, "
+                            f"holding {holding_period} days, "
+                            f"cumulative return {pct_str(to_float(cum_return, 0.0), signed=True)}, "
+                            f"flow score {to_float(flow_value, 0.0):.3f}, "
+                            f"final score {to_float(final_value, 0.0):.3f}, "
+                            f"profit range {profit_bucket}\n",
+                            f"- {company_name} ({ticker_code}): "
+                            f"유형 {candidate_label}, "
+                            f"보유일 {holding_period}일, "
+                            f"누적 수익률 {pct_str(to_float(cum_return, 0.0), signed=True)}, "
+                            f"수급 점수 {to_float(flow_value, 0.0):.3f}, "
+                            f"종합 점수 {to_float(final_value, 0.0):.3f}, "
+                            f"수익 구간 {profit_bucket}\n",
+                        )
                     )
 
     finally:
