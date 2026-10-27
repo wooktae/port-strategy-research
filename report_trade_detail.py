@@ -1,4 +1,4 @@
-"""거래별 상세 텍스트 리포트를 생성하는 모듈."""
+"""Module that generates the per-trade detail text report."""
 
 from datetime import datetime
 
@@ -19,10 +19,11 @@ from port_strategy_research.report_formatter import (
     label_market_signal,
     label_bool,
 )
+from port_strategy_research.report_locale import t, get_report_locale
 
 
 def generate_trade_detail_report(run_id: str, output_file: str = "03_거래_상세_리포트.txt"):
-    """단일 run_id의 완료 거래 상세 내역을 지정 파일로 생성한다."""
+    """Generate the detailed record of completed trades for a single run_id into the given file."""
     conn = get_conn()
     cur = conn.cursor()
 
@@ -34,11 +35,20 @@ def generate_trade_detail_report(run_id: str, output_file: str = "03_거래_상�
         mbweak_stats = load_mbweak_stats(cur, run_id)
 
         with open(output_file, "w", encoding="utf-8") as f:
-            f.write(f"실행일자: {datetime.now().strftime('%Y-%m-%d')}\n")
-            f.write(f"실행 ID: {run_id}\n")
-            f.write(f"엔진: {run_summary['strategy_version']}\n\n")
+            f.write(t(
+                f"Run Date: {datetime.now().strftime('%Y-%m-%d')}\n",
+                f"실행일자: {datetime.now().strftime('%Y-%m-%d')}\n",
+            ))
+            f.write(t(
+                f"Run ID: {run_id}\n",
+                f"실행 ID: {run_id}\n",
+            ))
+            f.write(t(
+                f"Engine: {run_summary['strategy_version']}\n\n",
+                f"엔진: {run_summary['strategy_version']}\n\n",
+            ))
 
-            f.write("거래 상세\n")
+            f.write(t("Trade Details\n", "거래 상세\n"))
             f.write("=============================\n\n")
 
             for row in trades:
@@ -60,10 +70,22 @@ def generate_trade_detail_report(run_id: str, output_file: str = "03_거래_상�
                 ) = row
 
                 f.write(f"[{company_name} / {ticker_code}]\n")
-                f.write(f"- 매수일: {buy_date}\n")
-                f.write(f"- 매도일: {sell_date}\n")
-                f.write(f"- 보유일: {holding_period}\n")
-                f.write(f"- 최종 수익률: {return_pct}\n")
+                f.write(t(
+                    f"- Buy Date: {buy_date}\n",
+                    f"- 매수일: {buy_date}\n",
+                ))
+                f.write(t(
+                    f"- Sell Date: {sell_date}\n",
+                    f"- 매도일: {sell_date}\n",
+                ))
+                f.write(t(
+                    f"- Holding Period: {holding_period}\n",
+                    f"- 보유일: {holding_period}\n",
+                ))
+                f.write(t(
+                    f"- Final Return: {return_pct}\n",
+                    f"- 최종 수익률: {return_pct}\n",
+                ))
 
                 entry_market_signal = (buy_info or {}).get("entry_market_signal")
                 position_size = to_float((buy_info or {}).get("position_size"), None)
@@ -73,32 +95,58 @@ def generate_trade_detail_report(run_id: str, output_file: str = "03_거래_상�
                 has_info_flag = (buy_info or {}).get("has_info_flag", None)
 
                 if entry_market_signal:
-                    f.write(f"- 진입 시장 상태: {label_market_signal(entry_market_signal)}\n")
+                    f.write(t(
+                        f"- Entry Market State: {label_market_signal(entry_market_signal)}\n",
+                        f"- 진입 시장 상태: {label_market_signal(entry_market_signal)}\n",
+                    ))
                 if position_size is not None:
-                    f.write(f"- 포지션 크기: {position_size:.4f}\n")
+                    f.write(t(
+                        f"- Position Size: {position_size:.4f}\n",
+                        f"- 포지션 크기: {position_size:.4f}\n",
+                    ))
                 if short_score is not None:
-                    f.write(f"- 진입 시 공매도 압력: {short_score:.2f}\n")
+                    f.write(t(
+                        f"- Short-Selling Pressure at Entry: {short_score:.2f}\n",
+                        f"- 진입 시 공매도 압력: {short_score:.2f}\n",
+                    ))
                 if vol_20d is not None:
-                    f.write(f"- 진입 시 20일 변동성: {vol_20d:.4f}\n")
+                    f.write(t(
+                        f"- 20-Day Volatility at Entry: {vol_20d:.4f}\n",
+                        f"- 진입 시 20일 변동성: {vol_20d:.4f}\n",
+                    ))
                 if intraday_range is not None:
-                    f.write(f"- 진입 시 장중 변동폭: {intraday_range:.4f}\n")
+                    f.write(t(
+                        f"- Intraday Range at Entry: {intraday_range:.4f}\n",
+                        f"- 진입 시 장중 변동폭: {intraday_range:.4f}\n",
+                    ))
                 if has_info_flag is not None:
-                    f.write(f"- 정보 신호 존재 여부: {label_bool(bool(has_info_flag))}\n")
+                    f.write(t(
+                        f"- Info Signal Present: {label_bool(bool(has_info_flag))}\n",
+                        f"- 정보 신호 존재 여부: {label_bool(bool(has_info_flag))}\n",
+                    ))
 
                 f.write(
-                    f"- 매수가격(시가/종가/저가): "
-                    f"{buy_open_price} / {buy_close_price} / {buy_low_price}\n"
+                    t(
+                        f"- Buy Price (open/close/low): "
+                        f"{buy_open_price} / {buy_close_price} / {buy_low_price}\n",
+                        f"- 매수가격(시가/종가/저가): "
+                        f"{buy_open_price} / {buy_close_price} / {buy_low_price}\n",
+                    )
                 )
                 f.write(
-                    f"- 매도가격(시가/종가/저가): "
-                    f"{sell_open_price} / {sell_close_price} / {sell_low_price}\n"
+                    t(
+                        f"- Sell Price (open/close/low): "
+                        f"{sell_open_price} / {sell_close_price} / {sell_low_price}\n",
+                        f"- 매도가격(시가/종가/저가): "
+                        f"{sell_open_price} / {sell_close_price} / {sell_low_price}\n",
+                    )
                 )
 
-                f.write("- 매수 사유\n")
+                f.write(t("- Buy Rationale\n", "- 매수 사유\n"))
                 for line in build_buy_reason(buy_info or {}, thresholds):
                     f.write(f"  → {line}\n")
 
-                f.write("- 매도 사유\n")
+                f.write(t("- Sell Rationale\n", "- 매도 사유\n"))
                 for line in build_sell_reason(
                     sell_info=sell_info or {},
                     holding_days=int(holding_period or 0),

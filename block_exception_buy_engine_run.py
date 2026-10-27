@@ -1,7 +1,7 @@
-"""block 장세 예외 매수 전략을 백테스트 엔진 흐름으로 검증하는 연구 스크립트.
+"""Research script that validates the block-market exception buy strategy through the backtest engine flow.
 
-기존 백테스트 loader/position/buy 저장 흐름을 재사용하며 run 생성, daily 저장, 분석 저장이 가능하다.
-실행 시 DB write와 commit이 발생할 수 있으므로 문서화 작업에서는 직접 실행하지 않는다.
+It reuses the existing backtest loader/position/buy persistence flow and can perform run creation, daily persistence, and analysis persistence.
+Because DB writes and commits may occur on execution, do not run it directly in documentation work.
 """
 
 from __future__ import annotations
@@ -121,8 +121,8 @@ def build_block_exception_candidates(stocks: List[dict]) -> List[dict]:
         if is_block_exception_candidate(stock)
     ]
 
-    # v0에서 후보 quality가 좋았던 구간을 그대로 사용하되,
-    # 엔진 통합 v1에서는 final_score DESC, flow_score DESC 우선.
+    # Keep the range where candidate quality was good in v0, but
+    # in engine-integration v1, prioritize final_score DESC, flow_score DESC.
     return sorted(
         candidates,
         key=lambda s: (
@@ -166,15 +166,15 @@ def process_block_exception_buy(
     company_map: Dict[str, str],
 ) -> Tuple[Dict[str, dict], int, List[dict]]:
     """
-    BLOCK_EXCEPTION_BUY_V1 전용 매수 처리.
+    Buy processing dedicated to BLOCK_EXCEPTION_BUY_V1.
 
-    기존 process_buy()를 직접 수정하지 않고,
-    BLOCK일 때만 별도 예외 매수 포지션을 생성한다.
+    Without directly modifying the existing process_buy(),
+    it creates a separate exception buy position only when the signal is BLOCK.
 
-    주의:
-    - 기존 process_existing_positions()는 그대로 사용한다.
-    - 매도는 기존 sell logic / intraday stop을 그대로 탄다.
-    - trade_log insert는 매도 시점에 process_existing_positions()가 처리한다.
+    Note:
+    - The existing process_existing_positions() is used as-is.
+    - Selling follows the existing sell logic / intraday stop as-is.
+    - The trade_log insert is handled by process_existing_positions() at sell time.
     """
     bought_returns: List[dict] = []
     bought_count = 0
@@ -219,7 +219,7 @@ def process_block_exception_buy(
             "prev_close": close_price,
             "size": BLOCK_EXCEPTION_POSITION_SIZE,
 
-            # 기존 position_manager / trade_log 호환용
+            # For compatibility with the existing position_manager / trade_log
             "entry_final_score": entry_buy_info["score"],
             "entry_flow_score": entry_buy_info["flow"],
             "entry_info_score": entry_buy_info["info"],
@@ -229,12 +229,12 @@ def process_block_exception_buy(
             "entry_close_price": close_price,
             "entry_low_price": low_price,
 
-            # 실험 추적용
+            # For experiment tracking
             "entry_source": EXPERIMENT_VERSION,
             "company_name": company_map.get(ticker, ""),
         }
 
-        # 기존 엔진과 동일하게 매수 당일 수익률은 0으로 처리
+        # As in the existing engine, treat the buy-day return as 0
         bought_returns.append(
             {
                 "ticker": ticker,
@@ -253,7 +253,7 @@ def process_block_exception_buy(
 # ============================================================
 
 def run_block_exception_engine_backtest(conn, run_id: str) -> List[dict]:
-    """block 예외 매수 조건을 적용한 백테스트 루프를 실행하고 history를 반환한다."""
+    """Runs the backtest loop with the block exception buy conditions applied and returns the history."""
     print_section("BLOCK_EXCEPTION_BUY_V1 Engine Backtest")
     print(f"ENGINE_VERSION     : {ENGINE_VERSION}")
     print(f"EXPERIMENT_VERSION : {EXPERIMENT_VERSION}")
@@ -323,7 +323,7 @@ def run_block_exception_engine_backtest(conn, run_id: str) -> List[dict]:
             bought_returns = exception_bought_returns
 
         else:
-            # BLOCK이 아닐 때는 기존 전략 그대로 사용한다.
+            # When not BLOCK, use the existing strategy as-is.
             candidates = filter_buy_candidates(stocks, decision)
 
             positions, bought_count_today, bought_returns = process_buy(

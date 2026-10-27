@@ -31,7 +31,7 @@ def evaluate_market(
     *,
     market_config: dict[str, Any],
 ) -> MarketDecision:
-    """명시적으로 받은 Market Config로 공통 시장 판단을 호출한다."""
+    """Calls the common market decision using the explicitly provided Market Config."""
     context = CommonMarketContext(
         trade_date=str(market.get("date", "TEST")),
         market_regime_score=float(

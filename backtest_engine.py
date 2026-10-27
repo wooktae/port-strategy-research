@@ -1,4 +1,4 @@
-"""백테스트 일자 루프를 실행하는 엔진 모듈."""
+"""Engine module that runs the backtest date loop."""
 
 from __future__ import annotations
 
@@ -69,7 +69,7 @@ def run_backtest(
     config_hash: str,
     input_snapshot_builder: InputSnapshotBuilder | None = None,
 ):
-    """동일 Config와 Config Identity를 전체 거래일 실행 경로에 주입한다."""
+    """Injects the same Config and Config Identity into the full trading-day execution path."""
     _validate_resolved_config(resolved_config)
 
     if not strategy_config_version:

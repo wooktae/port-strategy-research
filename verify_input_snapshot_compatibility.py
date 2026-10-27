@@ -1,4 +1,4 @@
-"""Input Snapshot Builder 비활성 시 기존 Price Frame 호환 계약 검증."""
+"""Verifies the existing Price Frame compatibility contract when the Input Snapshot Builder is inactive."""
 
 from __future__ import annotations
 

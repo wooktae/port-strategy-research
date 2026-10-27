@@ -1,4 +1,4 @@
-"""Resolved Strategy Config Snapshot, Canonical JSON, SHA-256 증적 생성."""
+"""Generates the Resolved Strategy Config Snapshot, Canonical JSON, and SHA-256 evidence."""
 
 from __future__ import annotations
 
@@ -36,12 +36,12 @@ SECRET_VALUE_PATTERNS = (
 
 
 class StrategyConfigSecretError(ValueError):
-    """Resolved Config 안에서 Secret 후보가 발견됨."""
+    """A Secret candidate was found within the Resolved Config."""
 
 
 @dataclass(frozen=True)
 class StrategyConfigSnapshot:
-    """실행에 사용할 불변 Config 증적."""
+    """Immutable Config evidence to be used for execution."""
 
     strategy_config_version: str
     resolved_config: dict[str, Any]
@@ -51,7 +51,7 @@ class StrategyConfigSnapshot:
 
 
 def _canonicalize(value: Any) -> Any:
-    """JSON 직렬화 가능한 결정적 표현으로 변환한다."""
+    """Converts to a deterministic, JSON-serializable representation."""
     if isinstance(value, Decimal):
         return str(value)
 
@@ -86,7 +86,7 @@ def _canonicalize(value: Any) -> Any:
 
 
 def to_canonical_json(resolved_config: Mapping[str, Any]) -> str:
-    """정렬된 Key와 고정 구분자를 사용하는 Canonical JSON을 만든다."""
+    """Builds Canonical JSON using sorted Keys and fixed separators."""
     canonical_value = _canonicalize(resolved_config)
 
     return json.dumps(
@@ -99,7 +99,7 @@ def to_canonical_json(resolved_config: Mapping[str, Any]) -> str:
 
 
 def calculate_config_hash(canonical_json: str) -> str:
-    """Canonical UTF-8 JSON의 SHA-256 Hex Digest를 반환한다."""
+    """Returns the SHA-256 Hex Digest of the Canonical UTF-8 JSON."""
     return hashlib.sha256(
         canonical_json.encode("utf-8")
     ).hexdigest()
@@ -128,7 +128,7 @@ def find_secret_candidates(
     *,
     path: str = "$",
 ) -> list[str]:
-    """Key 이름과 제한된 값 Pattern으로 Secret 후보 경로를 수집한다."""
+    """Collects Secret candidate paths using Key names and a limited set of value Patterns."""
     findings: list[str] = []
 
     if isinstance(value, Mapping):
@@ -171,7 +171,7 @@ def find_secret_candidates(
 
 
 def assert_no_secrets(resolved_config: Mapping[str, Any]) -> None:
-    """Resolved Config에 Secret 후보가 있으면 실행을 차단한다."""
+    """Blocks execution if the Resolved Config contains a Secret candidate."""
     findings = find_secret_candidates(resolved_config)
 
     if findings:
@@ -186,7 +186,7 @@ def create_strategy_config_snapshot(
     resolved_config: dict[str, Any],
     profile_path: Path,
 ) -> StrategyConfigSnapshot:
-    """검증된 Resolved Config에서 불변 Snapshot과 Hash를 생성한다."""
+    """Creates an immutable Snapshot and Hash from a validated Resolved Config."""
     assert_no_secrets(resolved_config)
 
     metadata = resolved_config.get("metadata")

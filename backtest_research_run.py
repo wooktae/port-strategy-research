@@ -1,7 +1,7 @@
-"""표준 백테스트 Research Run 실행 진입점.
+"""Entrypoint for running the standard backtest Research Run.
 
-Resolved Config Snapshot은 `strategy_backtest_run.config_snapshot`에 Run당 한 번 저장한다.
-Trade Log는 run_id·Strategy Config Version·Config Hash로 같은 Snapshot을 참조한다.
+The Resolved Config Snapshot is saved once per Run in `strategy_backtest_run.config_snapshot`.
+The Trade Log references the same Snapshot via run_id, Strategy Config Version, and Config Hash.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 
 def parse_args() -> argparse.Namespace:
-    """Research Backtest 실행 인자를 파싱한다."""
+    """Parses the Research Backtest execution arguments."""
     parser = argparse.ArgumentParser(
         description="Run the versioned Research backtest.",
     )
@@ -137,12 +137,12 @@ def _resolve_backtest_date_range(
     return start_date, end_date
 
 def get_conn():
-    """환경변수 기반 AWS RDS PostgreSQL Connection을 생성한다."""
+    """Creates an environment-variable-based AWS RDS PostgreSQL Connection."""
     return psycopg2.connect(**get_db_config())
 
 
 def save_run_inputs(conn, run_id, inputs: dict):
-    """Run 입력값을 별도 입력 이력 테이블에 저장한다."""
+    """Saves the Run input values to a separate input-history table."""
     with conn.cursor() as cur:
         for key, value in inputs.items():
             cur.execute(
@@ -162,7 +162,7 @@ def save_run_inputs(conn, run_id, inputs: dict):
 
 
 def main() -> None:
-    """Resolved Config Snapshot과 실행 Identity를 전체 경로에 연결한다."""
+    """Wires the Resolved Config Snapshot and execution Identity through the full path."""
     args = parse_args()
     selected_run_mode = args.run_mode
     selected_start_date, selected_end_date = (

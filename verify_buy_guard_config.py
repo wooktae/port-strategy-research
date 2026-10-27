@@ -1,4 +1,4 @@
-"""Research BUY Guard·Haircut Config 전달과 결과 보존 회귀 테스트."""
+"""Regression test for Research BUY Guard / Haircut Config forwarding and result preservation."""
 
 from __future__ import annotations
 

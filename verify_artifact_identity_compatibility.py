@@ -1,4 +1,4 @@
-"""create_run Artifact Identity 하위 호환 계약 검증."""
+"""Verifies the create_run Artifact Identity backward-compatibility contract."""
 
 from __future__ import annotations
 

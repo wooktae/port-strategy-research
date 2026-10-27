@@ -1,4 +1,4 @@
-"""Strategy Config Version Runtime Identity 계약 검증."""
+"""Verifies the Strategy Config Version Runtime Identity contract."""
 
 from __future__ import annotations
 

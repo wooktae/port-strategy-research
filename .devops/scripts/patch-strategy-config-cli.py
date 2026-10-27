@@ -47,7 +47,7 @@ nested_body = "\n".join(
 
 cli_block = r''
 def parse_args():
-    """Research Backtest 실행 인자를 파싱한다."""
+    """Parses the Research Backtest execution arguments."""
     parser = argparse.ArgumentParser(
         description="Run the versioned Research backtest.",
     )
@@ -63,7 +63,7 @@ def parse_args():
 
 
 def main() -> None:
-    """Profile을 먼저 선택한 뒤 기존 Backtest 실행 흐름을 시작한다."""
+    """Selects the Profile first, then starts the existing Backtest execution flow."""
     args = parse_args()
     strategy_profile, strategy_profile_path = load_strategy_profile(
         args.strategy_config_version

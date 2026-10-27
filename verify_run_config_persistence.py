@@ -1,4 +1,4 @@
-"""Run·Trade Config Persistence 계약을 AWS RDS 없이 검증한다."""
+"""Verifies the Run / Trade Config Persistence contract without AWS RDS."""
 
 from __future__ import annotations
 

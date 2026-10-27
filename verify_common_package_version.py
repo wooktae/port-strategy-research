@@ -1,4 +1,4 @@
-"""Common Package Version Runtime Identity 계약 검증."""
+"""Verifies the Common Package Version Runtime Identity contract."""
 
 from __future__ import annotations
 

@@ -1,7 +1,7 @@
-"""최신 backtest run에 대한 확장 분석 실행 진입점.
+"""Entrypoint for running the extended analysis on the latest backtest run.
 
-실행 시 DB에 접속해 최신 run_id를 찾고 확장 분석 테이블을 재생성한다.
-문서화 작업에서는 정적 확인만 수행하고 직접 실행하지 않는다.
+On execution it connects to the DB, finds the latest run_id, and regenerates the extended analysis tables.
+In documentation work, perform static checks only and do not run it directly.
 """
 
 from port_strategy_research.report_data_loader import get_conn, get_latest_run_id

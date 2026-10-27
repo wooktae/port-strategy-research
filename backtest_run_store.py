@@ -1,7 +1,7 @@
-"""백테스트 Run 메타데이터와 일별 산출물을 DB에 저장한다.
+"""Saves backtest Run metadata and daily outputs to the DB.
 
-전체 Resolved Config의 유일한 기준 Source는
-`strategy_backtest_run.config_snapshot`이다.
+The single source of truth for the full Resolved Config is
+`strategy_backtest_run.config_snapshot`.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ ALLOWED_RUN_MODES = frozenset({
 
 
 def ensure_run_tables(conn) -> None:
-    """Run·Trade Config 식별 컬럼과 필요한 인덱스를 생성 또는 보강한다."""
+    """Creates or augments the Run / Trade Config identity columns and required indexes."""
     ddl = """
     CREATE TABLE IF NOT EXISTS strategy_backtest_run (
         run_id UUID PRIMARY KEY,
@@ -133,11 +133,11 @@ def create_run(
     run_note: str | None = None,
     run_date: str | None = None,
 ) -> str:
-    """새 Run과 Config·Version·Artifact Identity를 함께 저장한다.
+    """Saves a new Run together with its Config, Version, and Artifact Identity.
 
-    기존 Local·단위 테스트 호출은 Artifact Identity를 생략할 수 있으며,
-    이 경우 UNRESOLVED 상태로 저장한다. Candidate 실행은 Entrypoint의
-    ``--require-artifact-identity`` Gate에서 COMPLETE Identity를 강제한다.
+    Existing Local / unit-test calls may omit the Artifact Identity, in which case
+    it is saved with UNRESOLVED status. Candidate execution enforces a COMPLETE Identity
+    via the Entrypoint's ``--require-artifact-identity`` Gate.
     """
     normalized_run_mode = str(run_mode).strip().upper()
     if normalized_run_mode not in ALLOWED_RUN_MODES:
@@ -214,7 +214,7 @@ def complete_input_snapshot(
     input_snapshot_hash: str,
     input_snapshot_manifest: str,
 ) -> None:
-    """실제 소비한 입력 Snapshot Hash와 Manifest를 Run에 확정 저장한다."""
+    """Finalizes and saves the actually consumed input Snapshot Hash and Manifest to the Run."""
     if len(input_snapshot_hash) != 64:
         raise ValueError("INPUT_SNAPSHOT_HASH_INVALID")
 
@@ -241,7 +241,7 @@ def insert_daily_result(
     run_id: str,
     row: dict[str, Any],
 ) -> None:
-    """run_id와 date 기준으로 일별 수익률 Row를 Upsert한다."""
+    """Upserts the daily return Row keyed by run_id and date."""
     sql = """
     INSERT INTO strategy_backtest_daily (
         run_id,
@@ -279,7 +279,7 @@ def insert_daily_positions(
     positions: dict[str, dict[str, Any]],
     company_map: dict | None = None,
 ) -> None:
-    """특정 일자의 보유 포지션 Snapshot을 Upsert한다."""
+    """Upserts the held-position Snapshot for a specific date."""
     sql = """
     INSERT INTO strategy_backtest_daily_position (
         run_id,
@@ -351,7 +351,7 @@ def fail_run(
     error_type: str,
     error_message: str,
 ) -> None:
-    """실패한 Run에 종료 시각·실행 범위·실패 사유를 남긴다."""
+    """Records the finish time, execution range, and failure reason on a failed Run."""
     normalized_error_type = str(error_type).strip() or "Exception"
     normalized_error_message = (
         str(error_message).strip() or "UNKNOWN_ERROR"
@@ -404,7 +404,7 @@ def finalize_run(
     sharpe: float,
     trade_count: int,
 ) -> None:
-    """백테스트 종료 시 Run Row에 성과 지표와 종료 시각을 반영한다."""
+    """On backtest completion, records the performance metrics and finish time on the Run Row."""
     sql = """
     UPDATE strategy_backtest_run
     SET finished_at = now(),

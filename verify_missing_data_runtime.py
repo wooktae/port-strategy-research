@@ -1,4 +1,4 @@
-"""결측 입력 Snapshot과 로컬 단기 실행 범위 계약 검증."""
+"""Verifies the missing-input Snapshot and local short-run execution-scope contract."""
 
 from __future__ import annotations
 

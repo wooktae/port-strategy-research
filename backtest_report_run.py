@@ -1,11 +1,11 @@
-"""최신 backtest run 기준 텍스트 리포트 묶음을 생성하는 진입점.
+"""Entrypoint that generates the text report bundle based on the latest backtest run.
 
-DB에서 최신 run_id를 조회하고 요약/매매/거래상세/추천 리포트 파일을 로컬에 쓴다.
-리포트 파일 생성과 DB 조회가 발생하므로 실행 전 출력 위치와 대상 DB를 확인해야 한다.
+It queries the latest run_id from the DB and writes the summary/trading/trade-detail/recommendation report files locally.
+Because report file creation and DB queries occur, verify the output location and target DB before running.
 
-출력 경로:
-- REPORT_OUTPUT_DIR 환경변수가 있으면 해당 디렉터리에 생성한다.
-- REPORT_OUTPUT_DIR 환경변수가 없으면 기존 동작과 동일하게 현재 작업 디렉터리에 생성한다.
+Output path:
+- If the REPORT_OUTPUT_DIR environment variable is set, files are created in that directory.
+- If the REPORT_OUTPUT_DIR environment variable is not set, files are created in the current working directory, as before.
 """
 
 import os
@@ -27,7 +27,7 @@ def get_today_str():
 
 
 def get_report_output_dir() -> Path:
-    """리포트 출력 디렉터리를 반환하고, 없으면 생성한다."""
+    """Return the report output directory, creating it if it does not exist."""
     output_dir = Path(os.environ.get("REPORT_OUTPUT_DIR", "."))
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir
@@ -39,7 +39,7 @@ def get_next_version(
     date_str: str,
     ext: str = "txt",
 ) -> str:
-    """출력 디렉터리 기준으로 다음 버전의 리포트 파일 경로를 생성한다."""
+    """Build the next-version report file path relative to the output directory."""
     pattern = re.compile(rf"{filename_prefix}_{date_str}_v(\d+)\.{ext}")
     max_v = 0
 

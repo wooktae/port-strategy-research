@@ -1,4 +1,4 @@
-"""Research Strategy Profile 선택, 검증, 병합과 Snapshot 생성을 담당한다."""
+"""Handles Research Strategy Profile selection, validation, merging, and Snapshot generation."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ STRATEGY_CONFIG_VERSION_PATTERN = re.compile(r"^RSCFG-[0-9]{4}$")
 
 
 def get_strategy_profile_directory() -> Path:
-    """Local Source와 Container 양쪽에서 Profile 디렉터리를 찾는다."""
+    """Locates the Profile directory in both the Local Source and the Container."""
     module_dir = Path(__file__).resolve().parent
     candidates = [
         module_dir / "strategy_profiles",
@@ -41,7 +41,7 @@ def get_strategy_profile_directory() -> Path:
 def resolve_strategy_profile_path(
     strategy_config_version: str,
 ) -> Path:
-    """Version 문자열을 검증하고 대응하는 JSON 경로를 반환한다."""
+    """Validates the Version string and returns the corresponding JSON path."""
     if not STRATEGY_CONFIG_VERSION_PATTERN.fullmatch(
         strategy_config_version
     ):
@@ -74,7 +74,7 @@ def _read_profile(profile_path: Path) -> dict[str, Any]:
 def load_strategy_profile(
     strategy_config_version: str,
 ) -> tuple[dict[str, Any], Path]:
-    """Profile JSON을 읽고 Schema를 검증한 뒤 원본 Profile을 반환한다."""
+    """Reads the Profile JSON, validates its Schema, and returns the original Profile."""
     profile_path = resolve_strategy_profile_path(
         strategy_config_version
     )
@@ -91,7 +91,7 @@ def load_strategy_profile(
 def load_resolved_strategy_profile(
     strategy_config_version: str,
 ) -> tuple[dict[str, Any], Path]:
-    """Profile을 검증하고 Common Default와 병합한 Config를 반환한다."""
+    """Validates the Profile and returns the Config merged with the Common Defaults."""
     profile_path = resolve_strategy_profile_path(
         strategy_config_version
     )
@@ -108,7 +108,7 @@ def load_resolved_strategy_profile(
 def load_strategy_config_snapshot(
     strategy_config_version: str,
 ) -> StrategyConfigSnapshot:
-    """Resolved Config, Canonical JSON과 SHA-256 Hash를 한 번에 생성한다."""
+    """Generates the Resolved Config, Canonical JSON, and SHA-256 Hash in one step."""
     resolved_config, profile_path = load_resolved_strategy_profile(
         strategy_config_version
     )

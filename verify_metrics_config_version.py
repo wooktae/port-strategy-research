@@ -1,4 +1,4 @@
-"""Metrics Config Version Runtime Identity와 Run 저장 계약 검증."""
+"""Verifies the Metrics Config Version Runtime Identity and Run persistence contract."""
 
 from __future__ import annotations
 

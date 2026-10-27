@@ -1,4 +1,4 @@
-"""Research Input Snapshot Hash 결정성과 Run 저장 계약 검증."""
+"""Verifies the Research Input Snapshot Hash determinism and Run persistence contract."""
 
 from __future__ import annotations
 

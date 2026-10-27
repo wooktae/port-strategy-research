@@ -1,7 +1,8 @@
-"""백테스트 분석 결과를 바탕으로 개선 추천 텍스트 리포트를 생성하는 모듈.
+"""Module that generates an improvement-recommendation text report from backtest analysis results.
 
-확장 분석 테이블과 config threshold를 읽어 리스크/진입/청산/섹터 관점의 진단 문구를 만든다.
-실행 시 DB 조회와 로컬 파일 쓰기가 발생한다.
+It reads the extended analysis tables and config thresholds to build diagnostic statements
+from risk, entry, exit, and sector perspectives.
+Running it performs DB queries and local file writes.
 """
 
 from datetime import datetime
@@ -43,6 +44,7 @@ from port_strategy_research.report_formatter import (
     label_mbweak_combo,
     label_market_signal,
 )
+from port_strategy_research.report_locale import t, get_report_locale
 
 
 def _safe_div(a: float, b: float) -> float:
@@ -51,27 +53,35 @@ def _safe_div(a: float, b: float) -> float:
     return float(a) / float(b)
 
 
+_CANDIDATE_LABELS = {
+    "quality_drop": "질 저하형",
+    "weak_other": "기타 약세형",
+}
+_CANDIDATE_LABELS_EN = {
+    "quality_drop": "quality-deterioration type",
+    "weak_other": "other-weakness type",
+}
+
+
 def _candidate_label(candidate_type: str) -> str:
-    return {
-        "quality_drop": "질 저하형",
-        "weak_other": "기타 약세형",
-    }.get(candidate_type, candidate_type)
+    labels = _CANDIDATE_LABELS if get_report_locale() == "ko" else _CANDIDATE_LABELS_EN
+    return labels.get(candidate_type, candidate_type)
 
 
 def _entry_bucket_label(metric_name: str, bucket_label: str) -> str:
     """
-    분석 테이블의 bucket_label은 이미 사람이 읽을 수 있는 형태인 경우가 많아서
-    기본적으로는 원문 유지.
-    단, true/false류만 보기 좋게 정리.
+    The bucket_label from the analysis table is often already in a human-readable form,
+    so by default the original value is kept.
+    Only true/false-style values are tidied up for presentation.
     """
     raw = str(bucket_label)
 
     if metric_name == "buy_has_info_flag":
         lowered = raw.lower()
         if lowered in ("true", "1", "yes"):
-            return "정보 신호 있음"
+            return t("Info signal present", "정보 신호 있음")
         if lowered in ("false", "0", "no"):
-            return "정보 신호 없음"
+            return t("Info signal absent", "정보 신호 없음")
 
     if metric_name == "buy_entry_signal":
         return label_market_signal(raw)
@@ -163,7 +173,7 @@ def build_recommendations(
     mbweak_candidate_rows,
     mbweak_other_rows,
 ):
-    """분석 row와 threshold snapshot을 조합해 추천 문구 목록을 만든다."""
+    """Combine analysis rows and the threshold snapshot to build the list of recommendation statements."""
     total_trades = int(run_summary.get("trade_count", 0) or 0)
     sharpe = to_float(run_summary.get("sharpe"), 0.0)
     mdd = to_float(run_summary.get("mdd"), 0.0)
@@ -173,32 +183,47 @@ def build_recommendations(
     actions: list[str] = []
 
     # --------------------------------------------------
-    # 1. 상위 성과 요약
+    # 1. Top-level performance summary
     # --------------------------------------------------
     if sharpe >= REC_CFG["sharpe_excellent"]:
         positives.append(
-            f"샤프 지수가 {sharpe:.2f}로 2.0 이상이라 전체 전략 품질은 이미 좋은 구간임"
+            t(
+                f"The Sharpe Ratio is {sharpe:.2f}, at or above 2.0, so overall strategy quality is already in a good range",
+                f"샤프 지수가 {sharpe:.2f}로 2.0 이상이라 전체 전략 품질은 이미 좋은 구간임",
+            )
         )
     elif sharpe >= REC_CFG["sharpe_good"]:
         positives.append(
-            f"샤프 지수가 {sharpe:.2f}로 기본 품질은 양호하지만, 청산·사이징 미세조정 여지가 남아 있음"
+            t(
+                f"The Sharpe Ratio is {sharpe:.2f}, so base quality is sound, but there is still room to fine-tune exits and sizing",
+                f"샤프 지수가 {sharpe:.2f}로 기본 품질은 양호하지만, 청산·사이징 미세조정 여지가 남아 있음",
+            )
         )
     else:
         cautions.append(
-            f"샤프 지수가 {sharpe:.2f}라 구조적 개선이 더 우선임"
+            t(
+                f"The Sharpe Ratio is {sharpe:.2f}, so structural improvement should take priority",
+                f"샤프 지수가 {sharpe:.2f}라 구조적 개선이 더 우선임",
+            )
         )
 
     if mdd <= REC_CFG["mdd_warning"]:
         cautions.append(
-            f"최대 낙폭이 {pct_str(mdd, signed=True)}로 큰 편이라 손실 구간 방어가 필요함"
+            t(
+                f"The Maximum Drawdown of {pct_str(mdd, signed=True)} is on the large side, so defense during loss periods is needed",
+                f"최대 낙폭이 {pct_str(mdd, signed=True)}로 큰 편이라 손실 구간 방어가 필요함",
+            )
         )
     else:
         positives.append(
-            f"최대 낙폭이 {pct_str(mdd, signed=True)} 수준으로 과도하게 무너지진 않음"
+            t(
+                f"The Maximum Drawdown is around {pct_str(mdd, signed=True)}, so it does not collapse excessively",
+                f"최대 낙폭이 {pct_str(mdd, signed=True)} 수준으로 과도하게 무너지진 않음",
+            )
         )
 
     # --------------------------------------------------
-    # 2. exit reason 중심 진단
+    # 2. exit reason-centered diagnosis
     # --------------------------------------------------
     mb_early_flat = reason_stats.get("market_block_early_flat")
     mb_late_flat = reason_stats.get("market_block_late_flat")
@@ -236,79 +261,132 @@ def build_recommendations(
 
     if bad_trades > 0:
         cautions.append(
-            f"BLOCK 손실군 비중이 {bad_trades}건({bad_ratio:.1f}%)이며 평균 수익률이 {pct_str(bad_avg, signed=True)}라 BLOCK 시점 손실군이 성과를 깎고 있음"
+            t(
+                f"The BLOCK loss group is {bad_trades} trades ({bad_ratio:.1f}%) with an average return of {pct_str(bad_avg, signed=True)}, so the loss group at BLOCK time is eroding performance",
+                f"BLOCK 손실군 비중이 {bad_trades}건({bad_ratio:.1f}%)이며 평균 수익률이 {pct_str(bad_avg, signed=True)}라 BLOCK 시점 손실군이 성과를 깎고 있음",
+            )
         )
         actions.append(
-            "BLOCK 튜닝은 전면 완화보다 질 저하형·기타 약세형 축소 중심으로 보는 것이 타당함"
+            t(
+                "BLOCK tuning is better focused on reducing the quality-deterioration and other-weakness types rather than a blanket relaxation",
+                "BLOCK 튜닝은 전면 완화보다 질 저하형·기타 약세형 축소 중심으로 보는 것이 타당함",
+            )
         )
         actions.append(
-            "1순위로 BLOCK 손실군 조건 재점검 필요: "
-            f"최소 유지 기대수익 {thresholds['market_block_min_keep_profit']:.3f}, "
-            f"최소 보유일 {thresholds['market_block_sell_min_holding_days']}일, "
-            f"최대 승자 보유일 {thresholds['market_block_max_win_holding_days']}일, "
-            f"강한 종목 최소 수급 기준 {thresholds.get('market_block_strong_min_flow')}, "
-            f"강한 종목 최소 종합 점수 기준 {thresholds.get('market_block_strong_min_final')}"
+            t(
+                "As the top priority, re-examine the BLOCK loss group conditions: "
+                f"minimum keep expected return {thresholds['market_block_min_keep_profit']:.3f}, "
+                f"minimum holding days {thresholds['market_block_sell_min_holding_days']}d, "
+                f"maximum winner holding days {thresholds['market_block_max_win_holding_days']}d, "
+                f"strong-stock minimum flow criterion {thresholds.get('market_block_strong_min_flow')}, "
+                f"strong-stock minimum overall score criterion {thresholds.get('market_block_strong_min_final')}",
+                "1순위로 BLOCK 손실군 조건 재점검 필요: "
+                f"최소 유지 기대수익 {thresholds['market_block_min_keep_profit']:.3f}, "
+                f"최소 보유일 {thresholds['market_block_sell_min_holding_days']}일, "
+                f"최대 승자 보유일 {thresholds['market_block_max_win_holding_days']}일, "
+                f"강한 종목 최소 수급 기준 {thresholds.get('market_block_strong_min_flow')}, "
+                f"강한 종목 최소 종합 점수 기준 {thresholds.get('market_block_strong_min_final')}",
+            )
         )
 
     if flat_trades > 0 and flat_avg > 0:
         positives.append(
-            f"BLOCK 평탄형 그룹은 {flat_trades}건이며 평균 수익률이 {pct_str(flat_avg, signed=True)}라 BLOCK에서도 일부는 무리 없이 더 보유 가능했을 여지가 있음"
+            t(
+                f"The BLOCK flat group is {flat_trades} trades with an average return of {pct_str(flat_avg, signed=True)}, so even under BLOCK some could reasonably have been held longer",
+                f"BLOCK 평탄형 그룹은 {flat_trades}건이며 평균 수익률이 {pct_str(flat_avg, signed=True)}라 BLOCK에서도 일부는 무리 없이 더 보유 가능했을 여지가 있음",
+            )
         )
         actions.append(
-            "BLOCK 초기 평탄형 / 후기 평탄형 조건은 별도 선별 보유 실험 대상으로 분리할 가치가 있음"
+            t(
+                "The BLOCK early-flat / late-flat conditions are worth separating out as a dedicated selective-holding experiment",
+                "BLOCK 초기 평탄형 / 후기 평탄형 조건은 별도 선별 보유 실험 대상으로 분리할 가치가 있음",
+            )
         )
 
     if mb_quality_drop and _stat_avg(mb_quality_drop) < 0:
         cautions.append(
-            f"BLOCK 질 저하형 청산군 평균 수익률이 {pct_str(mb_quality_drop['avg_return'], signed=True)}라 BLOCK 직전 종목 질 저하를 더 빨리 감지할 필요가 있음"
+            t(
+                f"The BLOCK quality-deterioration exit group has an average return of {pct_str(mb_quality_drop['avg_return'], signed=True)}, so quality deterioration right before BLOCK needs to be detected sooner",
+                f"BLOCK 질 저하형 청산군 평균 수익률이 {pct_str(mb_quality_drop['avg_return'], signed=True)}라 BLOCK 직전 종목 질 저하를 더 빨리 감지할 필요가 있음",
+            )
         )
 
     if mb_weak_other and _stat_avg(mb_weak_other) < 0:
         cautions.append(
-            f"BLOCK 기타 약세형 청산군 평균 수익률이 {pct_str(mb_weak_other['avg_return'], signed=True)}라 기타 약세형 BLOCK 청산군도 따로 관리가 필요함"
+            t(
+                f"The BLOCK other-weakness exit group has an average return of {pct_str(mb_weak_other['avg_return'], signed=True)}, so the other-weakness BLOCK exit group also needs separate management",
+                f"BLOCK 기타 약세형 청산군 평균 수익률이 {pct_str(mb_weak_other['avg_return'], signed=True)}라 기타 약세형 BLOCK 청산군도 따로 관리가 필요함",
+            )
         )
 
     if max_holding and to_float(max_holding["avg_return"], 0.0) > 0:
         positives.append(
-            f"최대 보유기간 도달 청산의 평균 수익률이 {pct_str(max_holding['avg_return'], signed=True)}라 오래 버틴 승자는 잘 먹는 구조임"
+            t(
+                f"Exits at the maximum Holding Period have an average return of {pct_str(max_holding['avg_return'], signed=True)}, so long-held winners are captured well",
+                f"최대 보유기간 도달 청산의 평균 수익률이 {pct_str(max_holding['avg_return'], signed=True)}라 오래 버틴 승자는 잘 먹는 구조임",
+            )
         )
 
     if profit_protect and to_float(profit_protect["avg_return"], 0.0) > 0:
         positives.append(
-            f"이익 보전 청산의 평균 수익률이 {pct_str(profit_protect['avg_return'], signed=True)}라 이익 보전 로직은 잘 작동하는 편임"
+            t(
+                f"Profit-protection exits have an average return of {pct_str(profit_protect['avg_return'], signed=True)}, so the profit-protection logic works well",
+                f"이익 보전 청산의 평균 수익률이 {pct_str(profit_protect['avg_return'], signed=True)}라 이익 보전 로직은 잘 작동하는 편임",
+            )
         )
 
     if early_cut and to_float(early_cut["avg_return"], 0.0) < 0:
         cautions.append(
-            f"초기 기대 미달 정리의 평균 수익률이 {pct_str(early_cut['avg_return'], signed=True)}라 "
-            "진입 직후 기대에 못 미치는 종목이 존재함. "
-            "다만 이 구간은 매수 당시 수급·점수가 양호한 경우도 있어 사전 차단보다 사후 리스크 관리 관점에서 보는 편이 적절함"
+            t(
+                f"Early below-expectation cleanups have an average return of {pct_str(early_cut['avg_return'], signed=True)}, so "
+                "there are stocks that fall short of expectations right after entry. "
+                "That said, some of these had sound flow and score at buy time, so it is more appropriate to view them from a post-hoc risk-management angle than to block them in advance",
+                f"초기 기대 미달 정리의 평균 수익률이 {pct_str(early_cut['avg_return'], signed=True)}라 "
+                "진입 직후 기대에 못 미치는 종목이 존재함. "
+                "다만 이 구간은 매수 당시 수급·점수가 양호한 경우도 있어 사전 차단보다 사후 리스크 관리 관점에서 보는 편이 적절함",
+            )
         )
 
     if early_risk_cut and to_float(early_risk_cut["avg_return"], 0.0) < 0:
         cautions.append(
-            f"초기 급락 방어 청산의 평균 수익률이 {pct_str(early_risk_cut['avg_return'], signed=True)}라 "
-            "초반 급락 방어 장치가 필요한 구간이 확인됨. "
-            "이 구간은 추가 진입 필터보다 현재 early risk cut이 손실 확대를 막는지 확인하는 방향이 적절함"
+            t(
+                f"Early sharp-drop defensive exits have an average return of {pct_str(early_risk_cut['avg_return'], signed=True)}, so "
+                "a segment that needs an early sharp-drop defense is confirmed. "
+                "For this segment it is more appropriate to check whether the current early risk cut prevents loss expansion than to add another entry filter",
+                f"초기 급락 방어 청산의 평균 수익률이 {pct_str(early_risk_cut['avg_return'], signed=True)}라 "
+                "초반 급락 방어 장치가 필요한 구간이 확인됨. "
+                "이 구간은 추가 진입 필터보다 현재 early risk cut이 손실 확대를 막는지 확인하는 방향이 적절함",
+            )
         )
 
     if buy_day_intraday_stop and int(buy_day_intraday_stop["trades"]) > 0:
         cautions.append(
-            f"진입 당일 급락 방어 청산이 {buy_day_intraday_stop['trades']}건 존재함. "
-            "다만 표본이 크지 않으므로 단독 필터 추가보다는 진입 당일 급락을 빠르게 인정하는 방어 장치로 해석하는 편이 적절함"
+            t(
+                f"There are {buy_day_intraday_stop['trades']} entry-day sharp-drop defensive exits. "
+                "However, the Sample is not large, so it is more appropriate to interpret this as a defense that quickly acknowledges an entry-day sharp drop rather than adding a standalone filter",
+                f"진입 당일 급락 방어 청산이 {buy_day_intraday_stop['trades']}건 존재함. "
+                "다만 표본이 크지 않으므로 단독 필터 추가보다는 진입 당일 급락을 빠르게 인정하는 방어 장치로 해석하는 편이 적절함",
+            )
         )
         actions.append(
-            f"진입 당일 급락 방어 기준({thresholds['buy_day_intraday_stop_loss']:.2%})은 "
-            "즉시 강화하기보다, 매수일 장중 변동폭·수급 점수·종합 점수와 함께 비교해 과적합 여부를 확인할 것"
+            t(
+                f"Rather than immediately tightening the entry-day sharp-drop defense threshold ({thresholds['buy_day_intraday_stop_loss']:.2%}), "
+                "compare it against buy-day intraday range, flow Score and overall Score to check for overfitting",
+                f"진입 당일 급락 방어 기준({thresholds['buy_day_intraday_stop_loss']:.2%})은 "
+                "즉시 강화하기보다, 매수일 장중 변동폭·수급 점수·종합 점수와 함께 비교해 과적합 여부를 확인할 것",
+            )
         )
 
     if intraday_stop and int(intraday_stop["trades"]) > 0:
         positives.append(
-            f"장중 손절은 {intraday_stop['trades']}건 존재하며, 평균 수익률 {pct_str(intraday_stop['avg_return'], signed=True)}로 단순 손절만은 아님"
+            t(
+                f"There are {intraday_stop['trades']} intraday stop-losses with an average return of {pct_str(intraday_stop['avg_return'], signed=True)}, so it is not simply a stop-loss",
+                f"장중 손절은 {intraday_stop['trades']}건 존재하며, 평균 수익률 {pct_str(intraday_stop['avg_return'], signed=True)}로 단순 손절만은 아님",
+            )
         )
 
     # --------------------------------------------------
-    # 3. holding 구간 진단
+    # 3. holding-period diagnosis
     # --------------------------------------------------
     bad_early_holding = []
     good_late_holding = []
@@ -328,22 +406,37 @@ def build_recommendations(
             f"{d}일({t}건, {pct_str(r, signed=True)})"
             for d, t, r in bad_early_holding
         )
+        joined_en = ", ".join(
+            f"{d}d ({t} trades, {pct_str(r, signed=True)})"
+            for d, t, r in bad_early_holding
+        )
         cautions.append(
-            f"초반 0~2일 구간 수익성이 약함: {joined}. "
-            "다만 초기 손실군은 매수 당시에는 양호해 보이는 케이스가 섞일 수 있어, 무리한 사전 필터링은 과적합 위험이 있음"
+            t(
+                f"Profitability is weak in the early 0-2 day range: {joined_en}. "
+                "That said, the early loss group can include cases that looked sound at buy time, so aggressive pre-filtering carries overfitting risk",
+                f"초반 0~2일 구간 수익성이 약함: {joined}. "
+                "다만 초기 손실군은 매수 당시에는 양호해 보이는 케이스가 섞일 수 있어, 무리한 사전 필터링은 과적합 위험이 있음",
+            )
         )
         actions.append(
-            "초기 0~2일 손실 구간은 추가 진입 차단보다, "
-            "현재 early cut / hard stop이 손실 확대를 적절히 제한하는지 확인하는 방향으로 점검할 것"
+            t(
+                "For the early 0-2 day loss range, rather than blocking additional entries, "
+                "review whether the current early cut / hard stop adequately limits loss expansion",
+                "초기 0~2일 손실 구간은 추가 진입 차단보다, "
+                "현재 early cut / hard stop이 손실 확대를 적절히 제한하는지 확인하는 방향으로 점검할 것",
+            )
         )
 
     if good_late_holding:
         positives.append(
-            "10일 이상 버틴 구간에서 양의 평균수익이 확인되어, 승자 장기 보유 구조는 살아 있음"
+            t(
+                "Positive average returns are confirmed in the 10-day-and-longer range, so the long-hold structure for winners is intact",
+                "10일 이상 버틴 구간에서 양의 평균수익이 확인되어, 승자 장기 보유 구조는 살아 있음",
+            )
         )
 
     # --------------------------------------------------
-    # 4. market_block bad 상세
+    # 4. market_block bad details
     # --------------------------------------------------
     bad_mb_buckets = []
     for holding_days, stat in sorted(mbweak_stats.items()):
@@ -363,17 +456,25 @@ def build_recommendations(
     if bad_mb_buckets:
         worst = min(bad_mb_buckets, key=lambda x: x[2])
         cautions.append(
-            "BLOCK 손실군이 보유 기간별로도 음수인 구간이 존재함"
+            t(
+                "There are BLOCK loss-group segments that are also negative by Holding Period",
+                "BLOCK 손실군이 보유 기간별로도 음수인 구간이 존재함",
+            )
         )
         actions.append(
+            t(
+                "Among the detailed BLOCK loss-group segments, review first from the "
+                f"{worst[0]}d segment (trades {worst[1]}, average return {pct_str(worst[2], signed=True)}, "
+                f"average flow Score {worst[3]:.3f}, average overall Score {worst[4]:.3f})",
                 "BLOCK 손실군 상세 구간 중 특히 "
                 f"{worst[0]}일(거래 수 {worst[1]}건, 평균 수익률 {pct_str(worst[2], signed=True)}, "
                 f"평균 수급 점수 {worst[3]:.3f}, 평균 종합 점수 {worst[4]:.3f}) "
-                "구간부터 우선 점검할 것"
+                "구간부터 우선 점검할 것",
+            )
         )    
 
     # --------------------------------------------------
-    # 4-A. market_block bad bucket / salvage 후보 진단
+    # 4-A. market_block bad bucket / salvage candidate diagnosis
     # --------------------------------------------------
     quality_cnt = 0
     quality_ret_sum = 0.0
@@ -426,7 +527,10 @@ def build_recommendations(
 
     if salvage_cnt > 0:
         positives.append(
-            f"BLOCK 손실군 사례 중 선별 보유 후보가 {salvage_cnt}건 존재해, BLOCK 전면 청산보다 선택적 유지 실험 가치가 있음"
+            t(
+                f"Among the BLOCK loss-group cases there are {salvage_cnt} selective-holding candidates, so a selective-retention experiment is worthwhile over a blanket BLOCK exit",
+                f"BLOCK 손실군 사례 중 선별 보유 후보가 {salvage_cnt}건 존재해, BLOCK 전면 청산보다 선택적 유지 실험 가치가 있음",
+            )
         )
 
     b45_quality = holding_reason_map.get((MBW_HOLDING_LABELS[1], "quality_drop"))
@@ -438,28 +542,40 @@ def build_recommendations(
         avg_ret = b45_quality["ret_sum"] / b45_quality["trades"]
         if avg_ret < 0:
             cautions.append(
-                f"4~5일 구간 질 저하형 평균 수익률이 {pct_str(avg_ret, signed=True)}라 이 구간은 유지보다 정리 쪽이 더 맞을 가능성이 큼"
+                t(
+                    f"The 4-5 day quality-deterioration type has an average return of {pct_str(avg_ret, signed=True)}, so this segment is more likely to fit cleanup than retention",
+                    f"4~5일 구간 질 저하형 평균 수익률이 {pct_str(avg_ret, signed=True)}라 이 구간은 유지보다 정리 쪽이 더 맞을 가능성이 큼",
+                )
             )
 
     if b45_weak and b45_weak["trades"] >= 5:
         avg_ret = b45_weak["ret_sum"] / b45_weak["trades"]
         if avg_ret < 0:
             cautions.append(
-                f"4~5일 구간 기타 약세형 평균 수익률이 {pct_str(avg_ret, signed=True)}라 중간 보유 구간 BLOCK 손실군도 별도 관리가 필요함"
+                t(
+                    f"The 4-5 day other-weakness type has an average return of {pct_str(avg_ret, signed=True)}, so the mid-holding BLOCK loss group also needs separate management",
+                    f"4~5일 구간 기타 약세형 평균 수익률이 {pct_str(avg_ret, signed=True)}라 중간 보유 구간 BLOCK 손실군도 별도 관리가 필요함",
+                )
             )
 
     if b68_quality and b68_quality["trades"] >= 5:
         avg_ret = b68_quality["ret_sum"] / b68_quality["trades"]
         if avg_ret < 0:
             cautions.append(
-                f"6~8일 구간 질 저하형 평균 수익률이 {pct_str(avg_ret, signed=True)}라 장기 완화는 오히려 역효과 가능성이 있음"
+                t(
+                    f"The 6-8 day quality-deterioration type has an average return of {pct_str(avg_ret, signed=True)}, so long-horizon relaxation may in fact backfire",
+                    f"6~8일 구간 질 저하형 평균 수익률이 {pct_str(avg_ret, signed=True)}라 장기 완화는 오히려 역효과 가능성이 있음",
+                )
             )
 
     if b68_weak and b68_weak["trades"] >= 5:
         avg_ret = b68_weak["ret_sum"] / b68_weak["trades"]
         if avg_ret < 0:
             cautions.append(
-                f"6~8일 구간 기타 약세형 평균 수익률이 {pct_str(avg_ret, signed=True)}라 장기 구간까지 BLOCK 완화를 넓히는 것은 주의가 필요함"
+                t(
+                    f"The 6-8 day other-weakness type has an average return of {pct_str(avg_ret, signed=True)}, so extending BLOCK relaxation into the long-horizon range needs caution",
+                    f"6~8일 구간 기타 약세형 평균 수익률이 {pct_str(avg_ret, signed=True)}라 장기 구간까지 BLOCK 완화를 넓히는 것은 주의가 필요함",
+                )
             )
 
     profit_0_23 = profit_bucket_map.get(MBW_PROFIT_LABELS[3], 0)
@@ -467,11 +583,14 @@ def build_recommendations(
     if total_bad_bucket > 0 and profit_0_23 > 0:
         ratio_0_23 = profit_0_23 * 100.0 / total_bad_bucket
         cautions.append(
-            f"BLOCK 손실군 중 0%~2.3% 구간이 {profit_0_23}건({ratio_0_23:.1f}%)으로 많아, 본전/소폭수익 종목까지 너무 일찍 자를 가능성이 있음"
+            t(
+                f"Within the BLOCK loss group the 0%-2.3% range is large at {profit_0_23} trades ({ratio_0_23:.1f}%), so break-even/small-gain stocks may be cut too early",
+                f"BLOCK 손실군 중 0%~2.3% 구간이 {profit_0_23}건({ratio_0_23:.1f}%)으로 많아, 본전/소폭수익 종목까지 너무 일찍 자를 가능성이 있음",
+            )
         )
 
     # --------------------------------------------------
-    # 4-B. market_block_weak_other combo 상세 진단
+    # 4-B. market_block_weak_other combo detailed diagnosis
     # --------------------------------------------------
     weak_combo_map: dict[str, dict] = {}
     weak_holding_combo_map: dict[tuple[str, str], dict] = {}
@@ -578,54 +697,92 @@ def build_recommendations(
             largest_ratio = largest_combo["trades"] * 100.0 / total_weak_other_combo
 
         cautions.append(
-            f"BLOCK 기타 약세형 내부에서는 {label_mbweak_combo(worst_combo_name)} 구간의 평균 수익률이 가장 낮음 "
-            f"(거래 수 {worst_combo['trades']}건, 비중 {worst_ratio:.1f}%, "
-            f"평균 수익률 {pct_str(worst_combo['avg_return'], signed=True)})"
+            t(
+                f"Within the BLOCK other-weakness type, the {label_mbweak_combo(worst_combo_name)} segment has the lowest average return "
+                f"(trades {worst_combo['trades']}, share {worst_ratio:.1f}%, "
+                f"average return {pct_str(worst_combo['avg_return'], signed=True)})",
+                f"BLOCK 기타 약세형 내부에서는 {label_mbweak_combo(worst_combo_name)} 구간의 평균 수익률이 가장 낮음 "
+                f"(거래 수 {worst_combo['trades']}건, 비중 {worst_ratio:.1f}%, "
+                f"평균 수익률 {pct_str(worst_combo['avg_return'], signed=True)})",
+            )
         )
 
         if worst_combo["trades"] < REC_CFG["min_sample_for_warning"]:
             cautions.append(
-                f"다만 {label_mbweak_combo(worst_combo_name)} 구간은 표본이 {worst_combo['trades']}건으로 작아 "
-                "핵심 병목으로 단정하기보다는 관찰 대상으로 보는 편이 적절함"
+                t(
+                    f"That said, the {label_mbweak_combo(worst_combo_name)} segment has a small Sample of {worst_combo['trades']} trades, "
+                    "so it is more appropriate to treat it as an observation target than to conclude it is the key bottleneck",
+                    f"다만 {label_mbweak_combo(worst_combo_name)} 구간은 표본이 {worst_combo['trades']}건으로 작아 "
+                    "핵심 병목으로 단정하기보다는 관찰 대상으로 보는 편이 적절함",
+                )
             )
         else:
             cautions.append(
-                f"{label_mbweak_combo(worst_combo_name)} 구간은 표본이 {worst_combo['trades']}건 이상이라 "
-                "세부 조건 점검 대상에 포함할 수 있음"
+                t(
+                    f"The {label_mbweak_combo(worst_combo_name)} segment has a Sample of {worst_combo['trades']} trades or more, "
+                    "so it can be included as a detailed-condition review target",
+                    f"{label_mbweak_combo(worst_combo_name)} 구간은 표본이 {worst_combo['trades']}건 이상이라 "
+                    "세부 조건 점검 대상에 포함할 수 있음",
+                )
             )
 
         if largest_combo_name != worst_combo_name:
             cautions.append(
-                f"기타 약세형 내부의 주된 덩어리는 {label_mbweak_combo(largest_combo_name)} 구간임 "
-                f"(거래 수 {largest_combo['trades']}건, 비중 {largest_ratio:.1f}%, "
-                f"평균 수익률 {pct_str(largest_combo['avg_return'], signed=True)})"
+                t(
+                    f"The main cluster within the other-weakness type is the {label_mbweak_combo(largest_combo_name)} segment "
+                    f"(trades {largest_combo['trades']}, share {largest_ratio:.1f}%, "
+                    f"average return {pct_str(largest_combo['avg_return'], signed=True)})",
+                    f"기타 약세형 내부의 주된 덩어리는 {label_mbweak_combo(largest_combo_name)} 구간임 "
+                    f"(거래 수 {largest_combo['trades']}건, 비중 {largest_ratio:.1f}%, "
+                    f"평균 수익률 {pct_str(largest_combo['avg_return'], signed=True)})",
+                )
             )
 
         if largest_combo_name == "neither_clear":
             actions.append(
-                "기타 약세형 개선은 점수 약세형 같은 단일 약세 신호보다 혼합·불명확형 세부 조건을 먼저 분해하는 방향이 적절함"
+                t(
+                    "Improving the other-weakness type is better done by first breaking down the mixed/unclear-type detailed conditions than a single weakness signal such as the score-weak type",
+                    "기타 약세형 개선은 점수 약세형 같은 단일 약세 신호보다 혼합·불명확형 세부 조건을 먼저 분해하는 방향이 적절함",
+                )
             )
             actions.append(
-                "혼합·불명확형은 현재 정의가 넓을 수 있으므로, 수급/종합점수/보유일/수익률 구간을 나눠 추가 진단하는 편이 효율적임"
+                t(
+                    "The mixed/unclear type may be broadly defined at present, so it is more efficient to diagnose it further by splitting flow / overall Score / Holding Period / return segments",
+                    "혼합·불명확형은 현재 정의가 넓을 수 있으므로, 수급/종합점수/보유일/수익률 구간을 나눠 추가 진단하는 편이 효율적임",
+                )
             )
         elif largest_combo_name == "both_weak":
             actions.append(
-                "기타 약세형의 주된 덩어리가 수급·점수 동시 약세형이라면, BLOCK 완화보다 수급·종합 점수 동시 약세 구간을 더 빠르게 정리하는 방향이 타당함"
+                t(
+                    "If the main cluster of the other-weakness type is the flow-and-score simultaneously-weak type, it is more reasonable to clean up the simultaneously-weak flow/overall-score segment faster than to relax BLOCK",
+                    "기타 약세형의 주된 덩어리가 수급·점수 동시 약세형이라면, BLOCK 완화보다 수급·종합 점수 동시 약세 구간을 더 빠르게 정리하는 방향이 타당함",
+                )
             )
         elif largest_combo_name == "flow_only_weak":
             actions.append(
-                "기타 약세형의 주된 덩어리가 수급 약세형이라면, 내부 판단에서 종합 점수보다 수급 붕괴를 더 중시하는 방향으로 재정의할 가치가 있음"
+                t(
+                    "If the main cluster of the other-weakness type is the flow-weak type, it is worth redefining the internal judgment to weight flow breakdown more than the overall Score",
+                    "기타 약세형의 주된 덩어리가 수급 약세형이라면, 내부 판단에서 종합 점수보다 수급 붕괴를 더 중시하는 방향으로 재정의할 가치가 있음",
+                )
             )
         elif largest_combo_name == "final_only_weak":
             actions.append(
-                "기타 약세형의 주된 덩어리가 점수 약세형이라면, 내부 판단에서 수급보다 종합 점수 저하를 더 빨리 반영하는 방향을 점검할 수 있음"
+                t(
+                    "If the main cluster of the other-weakness type is the score-weak type, you can review reflecting overall-Score deterioration faster than flow in the internal judgment",
+                    "기타 약세형의 주된 덩어리가 점수 약세형이라면, 내부 판단에서 수급보다 종합 점수 저하를 더 빨리 반영하는 방향을 점검할 수 있음",
+                )
             )
 
         if worst_combo_name != largest_combo_name:
             actions.append(
-                f"평균 수익률 최저 구간({label_mbweak_combo(worst_combo_name)})과 "
-                f"최대 비중 구간({label_mbweak_combo(largest_combo_name)})이 다르므로, "
-                "최저 수익률만 보고 핵심 병목으로 단정하지 말고 표본 수와 비중을 함께 판단할 것"
+                t(
+                    f"Since the lowest-average-return segment ({label_mbweak_combo(worst_combo_name)}) and "
+                    f"the largest-share segment ({label_mbweak_combo(largest_combo_name)}) differ, "
+                    "do not conclude the key bottleneck from the lowest return alone; judge it together with Sample count and share",
+                    f"평균 수익률 최저 구간({label_mbweak_combo(worst_combo_name)})과 "
+                    f"최대 비중 구간({label_mbweak_combo(largest_combo_name)})이 다르므로, "
+                    "최저 수익률만 보고 핵심 병목으로 단정하지 말고 표본 수와 비중을 함께 판단할 것",
+                )
             )
 
     worst_holding_combo = None
@@ -649,17 +806,26 @@ def build_recommendations(
     if worst_holding_combo_key and worst_holding_combo:
         holding_bucket, combo_type = worst_holding_combo_key
         cautions.append(
-            f"기타 약세형 세부 구간 중 {holding_bucket} / {label_mbweak_combo(combo_type)} 구간이 가장 약함 "
-            f"({pct_str(worst_holding_combo['avg_return'], signed=True)}). "
-            "다만 이 구간은 단독 매도 강화 대상이라기보다 기타 약세형 내부를 더 잘게 분해하기 위한 관찰 대상으로 보는 편이 적절함"
+            t(
+                f"Among the other-weakness detailed segments, the {holding_bucket} / {label_mbweak_combo(combo_type)} segment is the weakest "
+                f"({pct_str(worst_holding_combo['avg_return'], signed=True)}). "
+                "That said, it is more appropriate to view this segment as an observation target for further breaking down the other-weakness type than as a standalone sell-tightening target",
+                f"기타 약세형 세부 구간 중 {holding_bucket} / {label_mbweak_combo(combo_type)} 구간이 가장 약함 "
+                f"({pct_str(worst_holding_combo['avg_return'], signed=True)}). "
+                "다만 이 구간은 단독 매도 강화 대상이라기보다 기타 약세형 내부를 더 잘게 분해하기 위한 관찰 대상으로 보는 편이 적절함",
+            )
         )
         actions.append(
-            f"BLOCK 전면 완화나 즉시 로직 변경보다 우선 {holding_bucket} / {label_mbweak_combo(combo_type)} 구간을 "
-            "수급·종합점수·보유일·수익률 조건으로 추가 분해해 원인을 확인할 것"
+            t(
+                f"Before a blanket BLOCK relaxation or an immediate logic change, first break down the {holding_bucket} / {label_mbweak_combo(combo_type)} segment "
+                "further by flow / overall-Score / Holding Period / return conditions to confirm the cause",
+                f"BLOCK 전면 완화나 즉시 로직 변경보다 우선 {holding_bucket} / {label_mbweak_combo(combo_type)} 구간을 "
+                "수급·종합점수·보유일·수익률 조건으로 추가 분해해 원인을 확인할 것",
+            )
         )
 
     # --------------------------------------------------
-    # 4-1. exit trigger overlap 진단
+    # 4-1. exit trigger overlap diagnosis
     # --------------------------------------------------
     exit_trigger_map: dict[str, list[dict]] = defaultdict(list)
 
@@ -695,24 +861,36 @@ def build_recommendations(
 
         if flow_overlap and flow_overlap["trades"] >= REC_CFG["min_sample_for_overlap"]:
             cautions.append(
-                f"BLOCK 손실군 중 수급 붕괴 동반 건수가 {flow_overlap['trades']}건 존재 → 단순 시장 이슈보다 종목 약화가 함께 작동했을 가능성 있음"
+                t(
+                    f"Within the BLOCK loss group there are {flow_overlap['trades']} trades accompanied by flow breakdown -> stock weakening likely acted alongside more than a simple market issue",
+                    f"BLOCK 손실군 중 수급 붕괴 동반 건수가 {flow_overlap['trades']}건 존재 → 단순 시장 이슈보다 종목 약화가 함께 작동했을 가능성 있음",
+                )
             )
 
         if score_overlap and score_overlap["trades"] >= 10:
             cautions.append(
-                f"BLOCK 손실군 중 종합 점수 붕괴 동반 건수가 {score_overlap['trades']}건 존재 → BLOCK 청산 전에 종목 질적 저하가 선행됐을 가능성 있음"
+                t(
+                    f"Within the BLOCK loss group there are {score_overlap['trades']} trades accompanied by overall-Score breakdown -> stock quality deterioration likely preceded the BLOCK exit",
+                    f"BLOCK 손실군 중 종합 점수 붕괴 동반 건수가 {score_overlap['trades']}건 존재 → BLOCK 청산 전에 종목 질적 저하가 선행됐을 가능성 있음",
+                )
             )
 
         if mid_holding_overlap and mid_holding_overlap["trades"] >= 10:
             cautions.append(
-                f"BLOCK 손실군이 3~5일 보유 구간에서 {mid_holding_overlap['trades']}건 발생 → 중간 보유 구간 방어 청산이 과도할 수 있음"
+                t(
+                    f"The BLOCK loss group occurs {mid_holding_overlap['trades']} times in the 3-5 day Holding Period -> defensive exits in the mid-holding range may be excessive",
+                    f"BLOCK 손실군이 3~5일 보유 구간에서 {mid_holding_overlap['trades']}건 발생 → 중간 보유 구간 방어 청산이 과도할 수 있음",
+                )
             )
             actions.append(
-                "BLOCK 최소 보유일 상향 또는 최소 유지 기대수익 완화 실험 가치가 있음"
+                t(
+                    "Raising the BLOCK minimum holding days or relaxing the minimum keep expected return is worth experimenting with",
+                    "BLOCK 최소 보유일 상향 또는 최소 유지 기대수익 완화 실험 가치가 있음",
+                )
             )
 
     # --------------------------------------------------
-    # 5. entry analysis 진단
+    # 5. entry analysis diagnosis
     # --------------------------------------------------
     def add_metric_comparison(metric_name: str):
         human_name = label_entry_metric(metric_name)
@@ -729,64 +907,109 @@ def build_recommendations(
 
         if abs(spread) >= REC_CFG["spread_meaningful"]:
             positives.append(
-                f"{human_name} 구간 간 성과 차이가 존재함 "
-                f"(가장 좋았던 구간은 {best_label} {pct_str(best['avg_return'], signed=True)}, "
-                f"가장 약했던 구간은 {worst_label} {pct_str(worst['avg_return'], signed=True)})"
+                t(
+                    f"There is a performance difference across {human_name} segments "
+                    f"(the strongest segment was {best_label} {pct_str(best['avg_return'], signed=True)}, "
+                    f"the weakest segment was {worst_label} {pct_str(worst['avg_return'], signed=True)})",
+                    f"{human_name} 구간 간 성과 차이가 존재함 "
+                    f"(가장 좋았던 구간은 {best_label} {pct_str(best['avg_return'], signed=True)}, "
+                    f"가장 약했던 구간은 {worst_label} {pct_str(worst['avg_return'], signed=True)})",
+                )
             )
 
             if metric_name == "buy_flow":
                 actions.append(
-                    f"매수 수급 점수는 실질 구분력이 있으니, "
-                    f"{best_label} 구간 유지/강화 및 {worst_label} 구간 약화 실험 가치가 있음"
+                    t(
+                        f"The buy flow Score has real discriminating power, so "
+                        f"maintaining/strengthening the {best_label} segment and weakening the {worst_label} segment is worth experimenting with",
+                        f"매수 수급 점수는 실질 구분력이 있으니, "
+                        f"{best_label} 구간 유지/강화 및 {worst_label} 구간 약화 실험 가치가 있음",
+                    )
                 )
             elif metric_name == "buy_score":
                 actions.append(
-                    f"매수 종합 점수는 실질 구분력이 있으니, "
-                    f"{best_label} 구간 강화 및 {worst_label} 구간 보수화 실험 가치가 있음"
+                    t(
+                        f"The buy overall Score has real discriminating power, so "
+                        f"strengthening the {best_label} segment and making the {worst_label} segment more conservative is worth experimenting with",
+                        f"매수 종합 점수는 실질 구분력이 있으니, "
+                        f"{best_label} 구간 강화 및 {worst_label} 구간 보수화 실험 가치가 있음",
+                    )
                 )
             elif metric_name == "buy_info":
                 actions.append(
-                    f"매수 정보 점수는 단독보다는 보조 신호 성격이지만, "
-                    f"{best_label} 구간 우대 여부를 점검할 가치가 있음"
+                    t(
+                        f"The buy info Score is more of a supporting signal than a standalone one, but "
+                        f"it is worth reviewing whether to favor the {best_label} segment",
+                        f"매수 정보 점수는 단독보다는 보조 신호 성격이지만, "
+                        f"{best_label} 구간 우대 여부를 점검할 가치가 있음",
+                    )
                 )
             else:
                 actions.append(
-                    f"{human_name} 기준은 실질 구분력이 있으니, "
-                    f"{best_label} 쪽을 강화하고 {worst_label} 쪽을 약화하는 실험 가치가 있음"
+                    t(
+                        f"The {human_name} criterion has real discriminating power, so "
+                        f"strengthening the {best_label} side and weakening the {worst_label} side is worth experimenting with",
+                        f"{human_name} 기준은 실질 구분력이 있으니, "
+                        f"{best_label} 쪽을 강화하고 {worst_label} 쪽을 약화하는 실험 가치가 있음",
+                    )
                 )
 
         else:
             if metric_name == "buy_flow":
                 cautions.append(
-                    "매수 수급 점수 구간 간 전반적 성과 차이는 제한적이지만, 일부 구간은 상대적으로 양호해 관찰 유지가 필요함"
+                    t(
+                        "The overall performance difference across buy flow Score segments is limited, but some segments are relatively sound, so continued observation is needed",
+                        "매수 수급 점수 구간 간 전반적 성과 차이는 제한적이지만, 일부 구간은 상대적으로 양호해 관찰 유지가 필요함",
+                    )
                 )
             elif metric_name == "buy_info":
                 cautions.append(
-                    "매수 정보 점수 구간 간 성과 차이는 제한적이라 단독 신호로 해석하기엔 약할 수 있음"
+                    t(
+                        "The performance difference across buy info Score segments is limited, so it may be weak to interpret as a standalone signal",
+                        "매수 정보 점수 구간 간 성과 차이는 제한적이라 단독 신호로 해석하기엔 약할 수 있음",
+                    )
                 )
             elif metric_name == "buy_short":
                 cautions.append(
-                    "매수 시 공매도 압력 구간 간 성과 차이는 크지 않아 현재 공매도 압력 기준은 진입 구분력 측면에서 제한적일 수 있음"
+                    t(
+                        "The performance difference across short-selling pressure segments at buy time is small, so the current short-selling pressure criterion may be limited in entry discriminating power",
+                        "매수 시 공매도 압력 구간 간 성과 차이는 크지 않아 현재 공매도 압력 기준은 진입 구분력 측면에서 제한적일 수 있음",
+                    )
                 )
             elif metric_name == "buy_vol":
                 cautions.append(
-                    "매수 시 20일 변동성 구간 간 성과 차이는 크지 않아 현재 변동성 기준은 추가 미세조정 여지가 크지 않을 수 있음"
+                    t(
+                        "The performance difference across 20-day volatility segments at buy time is small, so the current volatility criterion may have little room for further fine-tuning",
+                        "매수 시 20일 변동성 구간 간 성과 차이는 크지 않아 현재 변동성 기준은 추가 미세조정 여지가 크지 않을 수 있음",
+                    )
                 )
             elif metric_name == "buy_intraday_range":
                 cautions.append(
-                    "매수일 장중 변동폭 구간 간 성과 차이는 크지 않아 단독 필터보다는 다른 진입 신호와 함께 보는 편이 적절함"
+                    t(
+                        "The performance difference across buy-day intraday range segments is small, so it is more appropriate to view it together with other entry signals than as a standalone filter",
+                        "매수일 장중 변동폭 구간 간 성과 차이는 크지 않아 단독 필터보다는 다른 진입 신호와 함께 보는 편이 적절함",
+                    )
                 )
             elif metric_name == "buy_entry_signal":
                 cautions.append(
-                    "진입 시장 상태 구간 간 성과 차이는 크지 않아 진입 시 시장 상태만으로 종목 성과를 크게 가르긴 어려워 보임"
+                    t(
+                        "The performance difference across entry market-state segments is small, so it seems hard to strongly separate stock performance by entry market state alone",
+                        "진입 시장 상태 구간 간 성과 차이는 크지 않아 진입 시 시장 상태만으로 종목 성과를 크게 가르긴 어려워 보임",
+                    )
                 )
             elif metric_name == "buy_score_flow_combo":
                 cautions.append(
-                    "매수 점수·수급 조합 구간 간 성과 차이는 크지 않아, 현재 조합 기준은 기대만큼의 추가 구분력을 주지 않을 수 있음"
+                    t(
+                        "The performance difference across buy score/flow combination segments is small, so the current combination criterion may not add as much discriminating power as expected",
+                        "매수 점수·수급 조합 구간 간 성과 차이는 크지 않아, 현재 조합 기준은 기대만큼의 추가 구분력을 주지 않을 수 있음",
+                    )
                 )
             else:
                 cautions.append(
-                    f"{human_name} 구간 간 성과 차이가 크지 않음 → 현재 기준으로는 구분력이 제한적일 수 있음"
+                    t(
+                        f"The performance difference across {human_name} segments is small -> discriminating power may be limited under the current criterion",
+                        f"{human_name} 구간 간 성과 차이가 크지 않음 → 현재 기준으로는 구분력이 제한적일 수 있음",
+                    )
                 )
 
     add_metric_comparison("buy_flow")
@@ -808,17 +1031,25 @@ def build_recommendations(
 
         if abs(best["avg_return"] - worst["avg_return"]) >= REC_CFG["info_flag_gap_meaningful"]:
             positives.append(
-                f"정보 신호 존재 여부 차이가 의미 있음 "
-                f"(가장 좋았던 구간은 {best_label} {pct_str(best['avg_return'], signed=True)}, "
-                f"가장 약했던 구간은 {worst_label} {pct_str(worst['avg_return'], signed=True)})"
+                t(
+                    f"The difference by presence of an info signal is meaningful "
+                    f"(the strongest segment was {best_label} {pct_str(best['avg_return'], signed=True)}, "
+                    f"the weakest segment was {worst_label} {pct_str(worst['avg_return'], signed=True)})",
+                    f"정보 신호 존재 여부 차이가 의미 있음 "
+                    f"(가장 좋았던 구간은 {best_label} {pct_str(best['avg_return'], signed=True)}, "
+                    f"가장 약했던 구간은 {worst_label} {pct_str(worst['avg_return'], signed=True)})",
+                )
             )
         else:
             cautions.append(
-                "정보 신호 존재 여부 차이는 크지 않아, 정보 신호 자체보다는 다른 지표와의 조합으로 보는 편이 적절함"
+                t(
+                    "The difference by presence of an info signal is small, so it is more appropriate to view it in combination with other indicators than the info signal itself",
+                    "정보 신호 존재 여부 차이는 크지 않아, 정보 신호 자체보다는 다른 지표와의 조합으로 보는 편이 적절함",
+                )
             )
 
     # --------------------------------------------------
-    # 5-1. entry day follow-through 진단
+    # 5-1. entry day follow-through diagnosis
     # --------------------------------------------------
     entry_day_map: dict[str, list[dict]] = defaultdict(list)
 
@@ -856,12 +1087,18 @@ def build_recommendations(
 
         if worst_flow["trades"] >= 5 and worst_flow["avg_day1_return"] < 0 and worst_flow["avg_final_return"] < 0:
             cautions.append(
-                f"매수 수급 점수 {worst_flow_label} 구간은 진입 당일부터 약하고 최종 성과도 부진 → 진입 품질 자체가 약할 가능성 있음"
+                t(
+                    f"The buy flow Score {worst_flow_label} segment is weak from the entry day and its final performance is also poor -> entry quality itself may be weak",
+                    f"매수 수급 점수 {worst_flow_label} 구간은 진입 당일부터 약하고 최종 성과도 부진 → 진입 품질 자체가 약할 가능성 있음",
+                )
             )
 
         if best_flow["trades"] >= 5 and best_flow["avg_day1_return"] > 0 and best_flow["avg_final_return"] > 0:
             positives.append(
-                f"매수 수급 점수 {best_flow_label} 구간은 초반/최종 성과가 모두 양호해 유지 관찰 후보로 볼 수 있음"
+                t(
+                    f"The buy flow Score {best_flow_label} segment has sound early and final performance, so it can be seen as a maintain-and-observe candidate",
+                    f"매수 수급 점수 {best_flow_label} 구간은 초반/최종 성과가 모두 양호해 유지 관찰 후보로 볼 수 있음",
+                )
             )
 
     score_day_rows = entry_day_map.get("buy_score", [])
@@ -874,11 +1111,14 @@ def build_recommendations(
             worst_score = min(weak_score_rows, key=lambda x: x["avg_final_return"])
             worst_score_label = _entry_bucket_label("buy_score", worst_score["bucket_label"])
             cautions.append(
-                f"매수 종합 점수 {worst_score_label} 구간은 초반 반응부터 약함 → 낮은 종합 점수 구간 진입 강화는 비효율적일 수 있음"
+                t(
+                    f"The buy overall Score {worst_score_label} segment is weak from the early reaction -> strengthening entries in the low overall-Score segment may be inefficient",
+                    f"매수 종합 점수 {worst_score_label} 구간은 초반 반응부터 약함 → 낮은 종합 점수 구간 진입 강화는 비효율적일 수 있음",
+                )
             )
 
     # --------------------------------------------------
-    # 6. signal + holding + exit_reason 진단
+    # 6. signal + holding + exit_reason diagnosis
     # --------------------------------------------------
     for signal, rows in signal_grouped.items():
         heavy_negative = [
@@ -890,21 +1130,28 @@ def build_recommendations(
         if heavy_negative:
             worst = min(heavy_negative, key=lambda x: x["avg_return"])
             cautions.append(
-                f"{label_market_signal(signal)} 진입 후 {worst['holding_bucket']} 보유에서 "
-                f"{label_exit_reason(worst['exit_reason'])} 성과가 약함 ({pct_str(worst['avg_return'], signed=True)})"
+                t(
+                    f"After a {label_market_signal(signal)} entry, {label_exit_reason(worst['exit_reason'])} performance "
+                    f"in the {worst['holding_bucket']} holding is weak ({pct_str(worst['avg_return'], signed=True)})",
+                    f"{label_market_signal(signal)} 진입 후 {worst['holding_bucket']} 보유에서 "
+                    f"{label_exit_reason(worst['exit_reason'])} 성과가 약함 ({pct_str(worst['avg_return'], signed=True)})",
+                )
             )
 
     # --------------------------------------------------
-    # 7. ticker analysis 진단
+    # 7. ticker analysis diagnosis
     # --------------------------------------------------
     bad_tickers = _top_bad_tickers(ticker_rows, limit=5)
     if bad_tickers:
         cautions.append(
-            "손실 기여 상위 종목이 존재하므로 특정 종목/섹터 편향 여부도 같이 점검해야 함"
+            t(
+                "There are top loss-contributing stocks, so whether there is a specific-stock/sector bias should also be reviewed",
+                "손실 기여 상위 종목이 존재하므로 특정 종목/섹터 편향 여부도 같이 점검해야 함",
+            )
         )
 
     # --------------------------------------------------
-    # 7-1. sector 분석
+    # 7-1. sector analysis
     # --------------------------------------------------
     bad_sector_rows = []
     good_sector_rows = []
@@ -954,12 +1201,20 @@ def build_recommendations(
             sector_name += f"/{worst_sector['sector_level2']}"
 
         cautions.append(
-            f"{sector_name} 섹터 성과가 약함 "
-            f"(거래 수 {worst_sector['trades']}건, 평균 수익률 {pct_str(worst_sector['avg_return'], signed=True)}, "
-            f"총 손익 기여도 {pct_str(worst_sector['total_pnl_contribution'], signed=True)})"
+            t(
+                f"The {sector_name} sector performance is weak "
+                f"(trades {worst_sector['trades']}, average return {pct_str(worst_sector['avg_return'], signed=True)}, "
+                f"total P&L contribution {pct_str(worst_sector['total_pnl_contribution'], signed=True)})",
+                f"{sector_name} 섹터 성과가 약함 "
+                f"(거래 수 {worst_sector['trades']}건, 평균 수익률 {pct_str(worst_sector['avg_return'], signed=True)}, "
+                f"총 손익 기여도 {pct_str(worst_sector['total_pnl_contribution'], signed=True)})",
+            )
         )
         actions.append(
-            f"{sector_name} 섹터 비중 축소 또는 별도 필터링 실험 가치가 있음"
+            t(
+                f"Reducing the {sector_name} sector weight or a separate filtering experiment is worthwhile",
+                f"{sector_name} 섹터 비중 축소 또는 별도 필터링 실험 가치가 있음",
+            )
         )
 
     if good_sector_rows:
@@ -972,25 +1227,36 @@ def build_recommendations(
             sector_name += f"/{best_sector['sector_level2']}"
 
         positives.append(
-            f"{sector_name} 섹터는 성과가 양호함 "
-            f"(거래 수 {best_sector['trades']}건, 평균 수익률 {pct_str(best_sector['avg_return'], signed=True)})"
+            t(
+                f"The {sector_name} sector performance is sound "
+                f"(trades {best_sector['trades']}, average return {pct_str(best_sector['avg_return'], signed=True)})",
+                f"{sector_name} 섹터는 성과가 양호함 "
+                f"(거래 수 {best_sector['trades']}건, 평균 수익률 {pct_str(best_sector['avg_return'], signed=True)})",
+            )
         )
 
     # --------------------------------------------------
-    # 8. run input 기반 액션 정리
+    # 8. run input-based action summary
     # --------------------------------------------------
     flow_min = run_inputs.get("flow_min")
     vol_penalty_multiplier = run_inputs.get("vol_penalty_multiplier")
 
     if flow_min is not None:
         actions.append(
-            f"현재 최소 수급 기준 {flow_min}이므로, 매수 수급 점수 구간 성과 차이를 근거로 상향/하향 실험 가능"
+            t(
+                f"The current minimum flow criterion is {flow_min}, so raising/lowering it can be experimented with based on the performance difference across buy flow Score segments",
+                f"현재 최소 수급 기준 {flow_min}이므로, 매수 수급 점수 구간 성과 차이를 근거로 상향/하향 실험 가능",
+            )
         )
 
     if vol_penalty_multiplier is not None:
         actions.append(
-            f"현재 변동성 감점 배수 {vol_penalty_multiplier} 기준이므로, "
-            "매수 시 20일 변동성 구간과 초반 손실 구간을 함께 보면서 추가 미세조정 가능"
+            t(
+                f"The current volatility penalty multiplier is {vol_penalty_multiplier}, so "
+                "further fine-tuning is possible by viewing the 20-day volatility segment at buy time together with the early loss segment",
+                f"현재 변동성 감점 배수 {vol_penalty_multiplier} 기준이므로, "
+                "매수 시 20일 변동성 구간과 초반 손실 구간을 함께 보면서 추가 미세조정 가능",
+            )
         )
 
     def dedupe(items: list[str]) -> list[str]:
@@ -1015,7 +1281,7 @@ def generate_recommendation_report(
     run_id: str,
     output_file: str = "04_추천리포트.txt",
 ):
-    """단일 run_id의 추천/진단 리포트를 지정 파일로 생성한다."""
+    """Generate the recommendation/diagnosis report for a single run_id into the given file."""
     conn = get_conn()
     cur = conn.cursor()
 
@@ -1061,88 +1327,110 @@ def generate_recommendation_report(
         )
 
         with open(output_file, "w", encoding="utf-8") as f:
-            f.write(f"실행일자: {datetime.now().strftime('%Y-%m-%d')}\n")
-            f.write(f"전략명: {run_summary['strategy_name']}\n")
-            f.write(f"엔진: {run_summary['strategy_version']}\n")
-            f.write(f"실행 ID: {run_id}\n")
+            f.write(t(f"Run Date: {datetime.now().strftime('%Y-%m-%d')}\n", f"실행일자: {datetime.now().strftime('%Y-%m-%d')}\n"))
+            f.write(t(f"Strategy: {run_summary['strategy_name']}\n", f"전략명: {run_summary['strategy_name']}\n"))
+            f.write(t(f"Engine: {run_summary['strategy_version']}\n", f"엔진: {run_summary['strategy_version']}\n"))
+            f.write(t(f"Run ID: {run_id}\n", f"실행 ID: {run_id}\n"))
             f.write(
-                f"백테스트 구간: {run_summary['backtest_start_date']} ~ "
-                f"{run_summary['backtest_end_date']}\n\n"
+                t(
+                    f"Backtest Period: {run_summary['backtest_start_date']} ~ "
+                    f"{run_summary['backtest_end_date']}\n\n",
+                    f"백테스트 구간: {run_summary['backtest_start_date']} ~ "
+                    f"{run_summary['backtest_end_date']}\n\n",
+                )
             )
 
-            f.write("최종 결과\n")
+            f.write(t("Final Results\n", "최종 결과\n"))
             f.write("=============================\n")
-            f.write(f"누적 이익: {pct_str(run_summary['total_return'])}\n")
-            f.write(f"최대 낙폭: {pct_str(run_summary['mdd'], signed=True)}\n")
-            f.write(f"샤프 지수: {to_float(run_summary['sharpe'], 0.0):.2f}\n")
-            f.write(f"총 거래수: {run_summary['trade_count']}\n")
-            f.write(f"실험 입력값: {format_run_inputs(run_inputs)}\n\n")
+            f.write(t(f"Cumulative Return: {pct_str(run_summary['total_return'])}\n", f"누적 이익: {pct_str(run_summary['total_return'])}\n"))
+            f.write(t(f"Maximum Drawdown: {pct_str(run_summary['mdd'], signed=True)}\n", f"최대 낙폭: {pct_str(run_summary['mdd'], signed=True)}\n"))
+            f.write(t(f"Sharpe Ratio: {to_float(run_summary['sharpe'], 0.0):.2f}\n", f"샤프 지수: {to_float(run_summary['sharpe'], 0.0):.2f}\n"))
+            f.write(t(f"Total Trades: {run_summary['trade_count']}\n", f"총 거래수: {run_summary['trade_count']}\n"))
+            f.write(t(f"Experiment Inputs: {format_run_inputs(run_inputs)}\n\n", f"실험 입력값: {format_run_inputs(run_inputs)}\n\n"))
 
-            f.write("핵심 진단\n")
+            f.write(t("Key Findings\n", "핵심 진단\n"))
             f.write("=============================\n")
             if not result["cautions"]:
-                f.write("- 없음\n")
+                f.write(t("- None\n", "- 없음\n"))
             else:
                 for idx, line in enumerate(result["cautions"], 1):
                     f.write(f"{idx}. {line}\n")
 
-            f.write("\n좋은 점\n")
+            f.write(t("\nStrengths\n", "\n좋은 점\n"))
             f.write("=============================\n")
             if not result["positives"]:
-                f.write("- 없음\n")
+                f.write(t("- None\n", "- 없음\n"))
             else:
                 for idx, line in enumerate(result["positives"], 1):
                     f.write(f"{idx}. {line}\n")
 
-            f.write("\n다음 액션 추천\n")
+            f.write(t("\nRecommended Next Actions\n", "\n다음 액션 추천\n"))
             f.write("=============================\n")
             if not result["actions"]:
-                f.write("- 없음\n")
+                f.write(t("- None\n", "- 없음\n"))
             else:
                 for idx, line in enumerate(result["actions"], 1):
                     f.write(f"{idx}. {line}\n")
 
-            f.write("\n손실 기여 상위 종목\n")
+            f.write(t("\nTop Loss-Contributing Stocks\n", "\n손실 기여 상위 종목\n"))
             f.write("=============================\n")
             if not result["bad_tickers"]:
-                f.write("- 없음\n")
+                f.write(t("- None\n", "- 없음\n"))
             else:
                 for row in result["bad_tickers"]:
                     f.write(
-                        f"- {row['company_name']} ({row['ticker_code']}): "
-                        f"거래 수 {row['trades']}건, "
-                        f"평균 수익률 {pct_str(row['avg_return'], signed=True)}, "
-                        f"승률 {row['win_rate'] * 100:.1f}%, "
-                        f"총 손익 기여도 {pct_str(row['total_pnl_contribution'], signed=True)}, "
-                        f"평균 보유일 {row['avg_holding']:.2f}일, "
-                        f"주요 청산 사유 {label_exit_reason(row['major_exit_reason'])}, "
-                        f"평균 매수 수급 점수 {row['avg_buy_flow']:.3f}, "
-                        f"평균 매수 종합 점수 {row['avg_buy_score']:.3f}\n"
+                        t(
+                            f"- {row['company_name']} ({row['ticker_code']}): "
+                            f"trades {row['trades']}, "
+                            f"average return {pct_str(row['avg_return'], signed=True)}, "
+                            f"Win Rate {row['win_rate'] * 100:.1f}%, "
+                            f"total P&L contribution {pct_str(row['total_pnl_contribution'], signed=True)}, "
+                            f"average Holding Period {row['avg_holding']:.2f}d, "
+                            f"major exit reason {label_exit_reason(row['major_exit_reason'])}, "
+                            f"average buy flow Score {row['avg_buy_flow']:.3f}, "
+                            f"average buy overall Score {row['avg_buy_score']:.3f}\n",
+                            f"- {row['company_name']} ({row['ticker_code']}): "
+                            f"거래 수 {row['trades']}건, "
+                            f"평균 수익률 {pct_str(row['avg_return'], signed=True)}, "
+                            f"승률 {row['win_rate'] * 100:.1f}%, "
+                            f"총 손익 기여도 {pct_str(row['total_pnl_contribution'], signed=True)}, "
+                            f"평균 보유일 {row['avg_holding']:.2f}일, "
+                            f"주요 청산 사유 {label_exit_reason(row['major_exit_reason'])}, "
+                            f"평균 매수 수급 점수 {row['avg_buy_flow']:.3f}, "
+                            f"평균 매수 종합 점수 {row['avg_buy_score']:.3f}\n",
+                        )
                     )
 
-            f.write("\n진입 구간 요약\n")
+            f.write(t("\nEntry Segment Summary\n", "\n진입 구간 요약\n"))
             f.write("=============================\n")
             if not entry_grouped:
-                f.write("- 진입 분석 없음\n")
+                f.write(t("- No entry analysis\n", "- 진입 분석 없음\n"))
             else:
                 for metric_name in sorted(entry_grouped.keys()):
                     f.write(f"[{label_entry_metric(metric_name)}]\n")
                     for row in entry_grouped[metric_name]:
                         f.write(
-                            f"  - {_entry_bucket_label(metric_name, row['bucket_label'])}: "
-                            f"{row['trades']}건, "
-                            f"평균 수익률 {pct_str(row['avg_return'], signed=True)}, "
-                            f"승률 {row['win_rate'] * 100:.1f}%, "
-                            f"평균 보유일 {row['avg_holding']:.2f}일\n"
+                            t(
+                                f"  - {_entry_bucket_label(metric_name, row['bucket_label'])}: "
+                                f"{row['trades']} trades, "
+                                f"average return {pct_str(row['avg_return'], signed=True)}, "
+                                f"Win Rate {row['win_rate'] * 100:.1f}%, "
+                                f"average Holding Period {row['avg_holding']:.2f}d\n",
+                                f"  - {_entry_bucket_label(metric_name, row['bucket_label'])}: "
+                                f"{row['trades']}건, "
+                                f"평균 수익률 {pct_str(row['avg_return'], signed=True)}, "
+                                f"승률 {row['win_rate'] * 100:.1f}%, "
+                                f"평균 보유일 {row['avg_holding']:.2f}일\n",
+                            )
                         )
                     f.write("\n")
 
-            f.write("\nBLOCK 선별 보유 후보 사례\n")
+            f.write(t("\nBLOCK Selective-Holding Candidate Cases\n", "\nBLOCK 선별 보유 후보 사례\n"))
             f.write("=============================\n")
             salvage_examples = result["salvage_examples"]
 
             if not salvage_examples:
-                f.write("- 없음\n")
+                f.write(t("- None\n", "- 없음\n"))
             else:
                 for row in salvage_examples:
                     (
@@ -1161,13 +1449,22 @@ def generate_recommendation_report(
                     ) = row
 
                     f.write(
-                        f"- {company_name} ({ticker_code}): "
-                        f"유형 {_candidate_label(candidate_type)}, "
-                        f"보유일 {holding_period}일, "
-                        f"누적 수익률 {pct_str(to_float(cum_return, 0.0), signed=True)}, "
-                        f"수급 점수 {to_float(flow_value, 0.0):.3f}, "
-                        f"종합 점수 {to_float(final_value, 0.0):.3f}, "
-                        f"수익 구간 {profit_bucket}\n"
+                        t(
+                            f"- {company_name} ({ticker_code}): "
+                            f"type {_candidate_label(candidate_type)}, "
+                            f"Holding Period {holding_period}d, "
+                            f"Cumulative Return {pct_str(to_float(cum_return, 0.0), signed=True)}, "
+                            f"flow Score {to_float(flow_value, 0.0):.3f}, "
+                            f"overall Score {to_float(final_value, 0.0):.3f}, "
+                            f"profit bucket {profit_bucket}\n",
+                            f"- {company_name} ({ticker_code}): "
+                            f"유형 {_candidate_label(candidate_type)}, "
+                            f"보유일 {holding_period}일, "
+                            f"누적 수익률 {pct_str(to_float(cum_return, 0.0), signed=True)}, "
+                            f"수급 점수 {to_float(flow_value, 0.0):.3f}, "
+                            f"종합 점수 {to_float(final_value, 0.0):.3f}, "
+                            f"수익 구간 {profit_bucket}\n",
+                        )
                     )
 
     finally:

@@ -1,4 +1,4 @@
-"""Research Backtest가 실제 소비한 입력 데이터의 결정적 Snapshot Hash 생성."""
+"""Generates a deterministic Snapshot Hash of the input data actually consumed by the Research Backtest."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ import pandas as pd
 
 
 class InputSnapshotError(ValueError):
-    """입력 Snapshot 구성 또는 완료 상태가 잘못되었을 때 발생한다."""
+    """Raised when the input Snapshot composition or finalized state is invalid."""
 
 
 SPECIAL_VALUE_KEY = "__research_special_value__"
@@ -31,15 +31,15 @@ def _special_value(label: str) -> dict[str, str]:
 
 
 def _canonicalize(value: Any) -> Any:
-    # None은 실제 JSON null로 유지한다.
+    # Keep None as an actual JSON null.
     if value is None:
         return None
 
-    # pandas.NA는 bool 평가 자체가 불가능하므로 먼저 식별한다.
+    # pandas.NA cannot be evaluated as a bool at all, so identify it first.
     if value is pd.NA:
         return _special_value(SPECIAL_PANDAS_NA)
 
-    # numpy scalar는 Python scalar로 내린 뒤 동일한 규칙을 적용한다.
+    # Reduce a numpy scalar to a Python scalar, then apply the same rules.
     if isinstance(value, np.generic):
         return _canonicalize(value.item())
 
@@ -140,7 +140,7 @@ def _count_special_values(value: Any) -> dict[str, int]:
 
 @dataclass(frozen=True)
 class InputSnapshotEvidence:
-    """완료된 입력 Snapshot Hash와 최소 Manifest."""
+    """Finalized input Snapshot Hash and the minimal Manifest."""
 
     snapshot_hash: str
     manifest_json: str
@@ -151,7 +151,7 @@ class InputSnapshotEvidence:
 
 
 class InputSnapshotBuilder:
-    """실제 소비 순서와 무관하게 Dataset Key 기준으로 결정적 Hash를 만든다."""
+    """Builds a deterministic Hash keyed by Dataset Key, independent of the actual consumption order."""
 
     def __init__(self) -> None:
         self._datasets: dict[str, dict[str, Any]] = {}
