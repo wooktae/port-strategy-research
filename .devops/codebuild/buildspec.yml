@@ -2,6 +2,10 @@ version: 0.2
 
 env:
   shell: bash
+  exported-variables:
+    - DASHBOARD_ECR_STATE
+    - DASHBOARD_ECR_REPOSITORY
+    - DASHBOARD_ECR_DIGEST
   variables:
     AWS_DEFAULT_REGION: ap-northeast-2
     IMAGE_REPO_NAME: portfolio-strategy-research
@@ -18,6 +22,7 @@ phases:
       python: 3.13
     commands:
       - set -euo pipefail
+      - export DASHBOARD_ECR_STATE=PENDING DASHBOARD_ECR_REPOSITORY="$IMAGE_REPO_NAME" DASHBOARD_ECR_DIGEST=""
       - echo "=== INSTALL RESEARCH BUILD DEPENDENCIES ==="
       - python --version
       - python -m pip --version
@@ -350,13 +355,19 @@ phases:
               --username AWS \
               --password-stdin "${ECR_REGISTRY}"
 
-          docker push "${IMAGE_URI}"
+          export DASHBOARD_ECR_STATE=PUSHING
+          docker push "${IMAGE_URI}" 2>&1 | tee /tmp/research-image-push.log
+          PUSH_DIGEST="$(sed -nE 's/.*digest: (sha256:[0-9a-f]{64}).*/\1/p' /tmp/research-image-push.log | sort -u)"
+          if [[ ! "${PUSH_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "PUSH_DIGEST_UNAVAILABLE"
+            exit 50
+          fi
 
           IMAGE_DIGEST="$(
             aws ecr describe-images \
               --region "${AWS_DEFAULT_REGION}" \
               --repository-name "${IMAGE_REPO_NAME}" \
-              --image-ids imageTag="${IMAGE_TAG}" \
+              --image-ids imageDigest="${PUSH_DIGEST}" \
               --query "imageDetails[0].imageDigest" \
               --output text
           )"
@@ -374,6 +385,8 @@ phases:
           } > .devops/evidence/research-image-digest.env
 
           echo "IMAGE_DIGEST=${IMAGE_DIGEST}"
+          export DASHBOARD_ECR_DIGEST="${IMAGE_DIGEST}"
+          export DASHBOARD_ECR_STATE=PUBLISHED
           echo "ECR_PUSH=SUCCESS"
           echo "DEPLOYMENT_EXECUTED=NO"
         else
@@ -384,6 +397,7 @@ phases:
             echo "DEPLOYMENT_EXECUTED=NO"
           } > .devops/evidence/research-image-digest.env
 
+          export DASHBOARD_ECR_STATE=SKIPPED
           echo "ECR_PUSH=SKIPPED"
           echo "IMAGE_DIGEST=UNRESOLVED"
           echo "DEPLOYMENT_EXECUTED=NO"

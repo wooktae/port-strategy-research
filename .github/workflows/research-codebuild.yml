@@ -229,6 +229,9 @@ jobs:
               --environment-variables-override \
                 name=PUSH_IMAGE,value="${PUSH_IMAGE}",type=PLAINTEXT \
                 name=RELEASE_STAGE,value=BUILD_ONLY,type=PLAINTEXT \
+                name=DASHBOARD_GITHUB_REPOSITORY,value="${GITHUB_REPOSITORY}",type=PLAINTEXT \
+                name=DASHBOARD_GITHUB_RUN_ID,value="${GITHUB_RUN_ID}",type=PLAINTEXT \
+                name=DASHBOARD_GITHUB_RUN_ATTEMPT,value="${GITHUB_RUN_ATTEMPT}",type=PLAINTEXT \
               --query 'build.id' \
               --output text
           )"
