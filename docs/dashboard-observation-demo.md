@@ -5,3 +5,4 @@ Workflow and provider evidence determine the outcome; this note does not activat
 Repeatability, Traceability, Controlled Activation.
 
 The final live review observes Build-only progress in the shared Flow and Stage Inspector workspace.
+A repeat Build-only run supports another observation of the live pipeline effects.
